@@ -1,0 +1,17 @@
+<odoo>
+  <data>
+
+    <record model="ir.ui.view" id="pos_payment_method_view_form">
+      <field name="model">pos.payment.method</field>
+      <field name="name">pos.payment.method.form.honei</field>
+      <field name="inherit_id" ref="point_of_sale.pos_payment_method_view_form"/>
+      <field name="arch" type="xml">
+        <field name="split_transactions" position="before">
+          <field name="is_honei_payment"/>
+          <field name="honei_token" invisible="not is_honei_payment"/>
+        </field>
+      </field>
+    </record>
+
+  </data>
+</odoo>

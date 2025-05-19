@@ -1,0 +1,16 @@
+<odoo>
+  <data>
+
+    <record model="ir.ui.view" id="view_pos_pos_form">
+      <field name="model">pos.order</field>
+      <field name="name">pos.order.form.honei</field>
+      <field name="inherit_id" ref="point_of_sale.view_pos_pos_form"/>
+      <field name="arch" type="xml">
+        <xpath expr="//notebook/page[@name='payments']/field[@name='payment_ids']/list/field[@name='amount']" position="after">
+          <field name="transaction_id"/>
+        </xpath>
+      </field>
+    </record>
+
+  </data>
+</odoo>

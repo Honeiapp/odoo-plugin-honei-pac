@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="honei_payment.HoneiValidationPopup" owl="1">
+        <Dialog title="props.title || _t('Selecciona Mètode Honei')"
+                size="'md'"
+                footer="footer">
+            <main class="body">
+                <p t-if="!props.honeiConfigs || props.honeiConfigs.length === 0">
+                    No hi ha configuracions de pagament Honei disponibles. Contacta amb l'administrador.
+                </p>
+                <div t-if="props.honeiConfigs &amp;&amp; props.honeiConfigs.length > 0" class="honei-options-list d-flex flex-wrap">
+                    <p class="w-100 mb-2">Si us plau, selecciona una opció de pagament Honei:</p>
+                    <t t-foreach="props.honeiConfigs" t-as="config" t-key="config.id">
+                        <button class="btn btn-outline-secondary selection-button m-1 flex-grow-1"
+                                t-att-class="state.selectedHoneiConfigId === config.id ? 'active btn-primary' : ''"
+                                t-on-click="() => this.selectHoneiConfig(config)">
+                            <t t-esc="config.name"/> (<t t-esc="config.code"/>)
+                        </button>
+                    </t>
+                </div>
+                <p t-if="state.status === 'loading'" class="mt-3">
+                    <i class="fa fa-spinner fa-spin"/> Validant...
+                </p>
+                <p t-if="state.status === 'error'" class="text-danger mt-3">
+                    <strong class="me-1"><t t-esc="_t('Error:')"/></strong><t t-esc="state.errorMessage"/>
+                </p>
+            </main>
+            <t t-set-slot="footer">
+                <button
+                    class="btn btn-primary"
+                    t-att-disabled="!state.selectedHoneiConfigId"
+                    t-on-click="confirm">
+                    <t t-esc="props.confirmText || _t('Continuar')"/>
+                </button>
+                <button
+                    class="btn btn-secondary"
+                    t-on-click="cancel">
+                    <t t-esc="props.cancelText || _t('Cancel·lar')"/>
+                </button>
+            </t>
+        </Dialog>
+    </t>
+</templates>
