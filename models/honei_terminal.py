@@ -1,9 +1,9 @@
 from odoo import fields, models
 
 
-class HoneiPayment(models.Model):
-    _name = "pos.config.honei_payment"
-    _description = "Honei Payment"
+class HoneiTerminal(models.Model):
+    _name = "pos.config.honei_terminal"
+    _description = "Honei Terminal"
 
     name = fields.Char("Name", required=True)
     terminal_id = fields.Char("Terminal ID", required=True)

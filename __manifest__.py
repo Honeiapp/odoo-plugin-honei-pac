@@ -1,35 +1,35 @@
 {
-    'name': "honei_payment",
+    "name": "Honei Terminal",
 
-    'summary': "Short (1 phrase/line) summary of the module's purpose",
+    "summary": "Pago con Honei Terminal",
 
-    'description': """
-Long description of module's purpose
+    "description": """
+Procesa pagos a través de Honei Terminal.
     """,
 
-    'author': "honei",
-    'website': "https://www.honei.app",
-    'category': 'Point of Sale',
-    'version': '0.1.0',
-    'license': 'Other proprietary',
+    "author": "honei",
+    "website": "https://www.honei.app",
+    "category": "Point of Sale",
+    "version": "0.1.0",
+    "license": "Other proprietary",
 
-    'depends': [
-        'base',
-        'point_of_sale',
+    "depends": [
+        "base",
+        "point_of_sale",
     ],
 
-    'data': [
-        'security/ir.model.access.csv',
-        'views/pos_config.xml',
-        'views/pos_payment_method.xml',
-        'views/pos_order.xml',
+    "data": [
+        "security/ir.model.access.csv",
+        "views/pos_config.xml",
+        "views/pos_payment_method.xml",
+        "views/pos_order.xml",
     ],
 
-    'assets': {
-        'point_of_sale._assets_pos': [
-            'honei_payment/static/src/js/honei_validation_popup.js',
-            'honei_payment/static/src/js/payment_screen.js',
-            'honei_payment/static/src/xml/honei_validation_popup.xml',
+    "assets": {
+        "point_of_sale._assets_pos": [
+            "honei_terminal/static/src/js/honei_validation_popup.js",
+            "honei_terminal/static/src/js/payment_screen.js",
+            "honei_terminal/static/src/xml/honei_validation_popup.xml",
         ],
-    }
+    },
 }

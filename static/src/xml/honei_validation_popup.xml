@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
-    <t t-name="honei_payment.HoneiValidationPopup" owl="1">
-        <Dialog title="props.title || _t('Selecciona Mètode Honei')"
+    <t t-name="honei_terminal.HoneiValidationPopup" owl="1">
+        <Dialog title="props.title || _t('Selecciona método Honei')"
                 size="'md'"
                 footer="footer">
             <main class="body">
                 <p t-if="!props.honeiConfigs || props.honeiConfigs.length === 0">
-                    No hi ha configuracions de pagament Honei disponibles. Contacta amb l'administrador.
+                    No hay configuraciones de pago Honei disponibles. Contacta con el administrador.
                 </p>
-                <div t-if="props.honeiConfigs &amp;&amp; props.honeiConfigs.length > 0" class="honei-options-list d-flex flex-wrap">
-                    <p class="w-100 mb-2">Si us plau, selecciona una opció de pagament Honei:</p>
+
+                <!-- Terminal selection (only visible in idle/error state) -->
+                <div t-if="props.honeiConfigs &amp;&amp; props.honeiConfigs.length > 0 &amp;&amp; (state.status === 'idle' || state.status === 'error')"
+                     class="honei-options-list d-flex flex-wrap">
+                    <p class="w-100 mb-2">Por favor, selecciona un terminal de pago Honei:</p>
                     <t t-foreach="props.honeiConfigs" t-as="config" t-key="config.id">
                         <button class="btn btn-outline-secondary selection-button m-1 flex-grow-1"
                                 t-att-class="state.selectedHoneiConfigId === config.id ? 'active btn-primary' : ''"
@@ -18,24 +21,33 @@
                         </button>
                     </t>
                 </div>
-                <p t-if="state.status === 'loading'" class="mt-3">
-                    <i class="fa fa-spinner fa-spin"/> Validant...
-                </p>
-                <p t-if="state.status === 'error'" class="text-danger mt-3">
-                    <strong class="me-1"><t t-esc="_t('Error:')"/></strong><t t-esc="state.errorMessage"/>
-                </p>
+
+                <!-- Loading / Processing state -->
+                <div t-if="state.status === 'loading' || state.status === 'processing'" class="text-center mt-3 py-4">
+                    <i class="fa fa-spinner fa-spin fa-3x mb-3 d-block text-primary"/>
+                    <p class="fs-5"><t t-esc="state.statusMessage"/></p>
+                </div>
+
+                <!-- Error state -->
+                <div t-if="state.status === 'error'" class="mt-3">
+                    <div class="alert alert-danger mb-0">
+                        <strong class="me-1"><t t-esc="_t('Error:')"/></strong>
+                        <t t-esc="state.errorMessage"/>
+                    </div>
+                </div>
             </main>
             <t t-set-slot="footer">
                 <button
                     class="btn btn-primary"
                     t-att-disabled="!state.selectedHoneiConfigId"
-                    t-on-click="confirm">
-                    <t t-esc="props.confirmText || _t('Continuar')"/>
+                    t-on-click="confirm"
+                    t-if="state.status === 'idle' || state.status === 'error'">
+                    <t t-esc="props.confirmText || _t('Confirmar pago')"/>
                 </button>
                 <button
                     class="btn btn-secondary"
                     t-on-click="cancel">
-                    <t t-esc="props.cancelText || _t('Cancel·lar')"/>
+                    <t t-esc="props.cancelText || _t('Cancelar')"/>
                 </button>
             </t>
         </Dialog>

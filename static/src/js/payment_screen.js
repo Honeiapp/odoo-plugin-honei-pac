@@ -9,7 +9,7 @@ import { HoneiValidationPopup } from "./honei_validation_popup";
 patch(PaymentScreen.prototype, {
     setup() {
         super.setup(...arguments);
-        this.honei_payment = this.pos.config.baseData[this.pos.config.id].honei_payment_data || [];
+        this.honei_terminal = this.pos.config.baseData[this.pos.config.id].honei_terminal_data || [];
     },
 
     async addNewPaymentLine(paymentMethod) {
@@ -19,26 +19,37 @@ patch(PaymentScreen.prototype, {
             return await super.addNewPaymentLine(paymentMethod);
         }
 
-        if (this.honei_payment.length === 0) {
+        if (this.honei_terminal.length === 0) {
             this.dialog.add(AlertDialog, {
-                title: _t("Error de Configuració"),
-                body: _t("No s'han trobat configuracions de pagament Honei vàlides."),
+                title: _t("Error de configuración"),
+                body: _t("No se han encontrado configuraciones de pago Honei válidas."),
             });
             return;
         }
 
-        // Utilitzem una Promise per gestionar el flux asíncron
+        const order = this.currentOrder || this.pos.get_order();
+        const amount = order.get_due();
+        const currency = this.pos.currency?.name || "EUR";
+
+        const apiBaseUrl = paymentMethod.is_staging
+            ? "https://staging.api.honei.app/v1"
+            : "https://api.honei.app/v1";
+
         return new Promise((resolve) => {
             this.dialog.add(HoneiValidationPopup, {
-                title: _t("Selecciona una opció de pagament Honei"),
+                title: _t("Selecciona una opción de pago Honei"),
                 paymentMethodName: paymentMethod.name,
-                honeiConfigs: this.honei_payment,
-                token: paymentMethod.honei_token || "",
+                honeiConfigs: this.honei_terminal,
+                venueApiKey: paymentMethod.venue_api_key || "",
+                integrationSecret: paymentMethod.odoo_integration_secret || "",
+                apiBaseUrl: apiBaseUrl,
+                amount: amount,
+                currency: currency,
                 onConfirm: async (selectedHoneiConfig, apiResponse) => {
                     if (!apiResponse || apiResponse.status !== "done") {
                         this.dialog.add(AlertDialog, {
-                            title: _t("Error de Pagament"),
-                            body: _t("El pagament no s'ha pogut processar correctament."),
+                            title: _t("Error de pago"),
+                            body: _t("El pago no se ha podido procesar correctamente."),
                         });
                         resolve(null);
                         return;
@@ -46,30 +57,29 @@ patch(PaymentScreen.prototype, {
 
                     const paymentLineAdded = await super.addNewPaymentLine(paymentMethod);
                     if (paymentLineAdded) {
-                        const order = this.currentOrder || this.pos.get_order();
-                        const newLine = order.get_selected_paymentline();
+                        const currentOrder = this.currentOrder || this.pos.get_order();
+                        const newLine = currentOrder.get_selected_paymentline();
                         if (newLine) {
                             newLine.transaction_id = apiResponse.transactionId;
                             newLine.set_payment_status(apiResponse.status);
-                            newLine.payment_ref_no = selectedHoneiConfig.terminal_id;
+                            newLine.payment_ref_no = selectedHoneiConfig.code;
                             resolve(newLine);
                         } else {
                             this.dialog.add(AlertDialog, {
-                                title: _t("Error de Línia de Pagament"),
-                                body: _t("No s'ha pogut obtenir la línia de pagament acabada de crear."),
+                                title: _t("Error de línea de pago"),
+                                body: _t("No se ha podido obtener la línea de pago recién creada."),
                             });
                             resolve(null);
                         }
                     } else {
                         this.dialog.add(AlertDialog, {
-                            title: _t("Error en Afegir Pagament"),
-                            body: _t("No s'ha pogut afegir la línia de pagament. Intenta-ho de nou."),
+                            title: _t("Error al añadir pago"),
+                            body: _t("No se ha podido añadir la línea de pago. Inténtalo de nuevo."),
                         });
                         resolve(null);
                     }
                 },
                 onCancel: () => {
-                    console.log("Popup Honei cancel·lat.");
                     resolve(null);
                 }
             });

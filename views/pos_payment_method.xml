@@ -1,14 +1,16 @@
 <odoo>
   <data>
 
-    <record model="ir.ui.view" id="pos_payment_method_view_form">
+    <record model="ir.ui.view" id="pos_payment_method_view_form_honei_terminal">
       <field name="model">pos.payment.method</field>
-      <field name="name">pos.payment.method.form.honei</field>
+      <field name="name">pos.payment.method.form.honei_terminal</field>
       <field name="inherit_id" ref="point_of_sale.pos_payment_method_view_form"/>
       <field name="arch" type="xml">
         <field name="split_transactions" position="before">
           <field name="is_honei_payment"/>
-          <field name="honei_token" invisible="not is_honei_payment"/>
+          <field name="venue_api_key" invisible="not is_honei_payment"/>
+          <field name="is_staging" invisible="not is_honei_payment"/>
+          <field name="odoo_integration_secret" invisible="not is_honei_payment" password="True"/>
         </field>
       </field>
     </record>
