@@ -51,11 +51,12 @@ export class HoneiValidationPopup extends Component
             errorMessage: "",
             statusMessage: "",
             cancelling: false,
+            abortUrl: null,
         } );
 
         this._t = _t;
         this._polling = false;
-        this._abortUrl = null;
+        this.state.abortUrl = null;
 
         const configs = this.props.honeiConfigs || [];
 
@@ -185,10 +186,10 @@ export class HoneiValidationPopup extends Component
             this.state.statusMessage = this._t( "Iniciando pago..." );
             this.state.errorMessage = "";
             this.state.cancelling = false;
-            this._abortUrl = null;
+            this.state.abortUrl = null;
 
             const initResult = await this._initPayment( terminalId, amount, currency );
-            this._abortUrl = initResult.paymentAbortUrl || null;
+            this.state.abortUrl = initResult.paymentAbortUrl || null;
 
             this.state.status = "processing";
             this.state.statusMessage = this._t( "Esperando confirmación en el terminal..." );
@@ -241,12 +242,12 @@ export class HoneiValidationPopup extends Component
 
     async cancel()
     {
-        if ( this._abortUrl && ( this.state.status === "processing" || this.state.status === "loading" ) )
+        if ( this.state.abortUrl && ( this.state.status === "processing" || this.state.status === "loading" ) )
         {
             this.state.cancelling = true;
             try
             {
-                await this._abortPayment( this._abortUrl );
+                await this._abortPayment( this.state.abortUrl );
             } catch ( error )
             {
                 // Abort failed, stop polling and close anyway

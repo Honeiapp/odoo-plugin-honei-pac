@@ -49,7 +49,7 @@
                     class="btn btn-danger"
                     t-on-click="cancel"
                     t-att-disabled="state.cancelling"
-                    t-if="state.status === 'processing' || state.status === 'loading'">
+                    t-if="state.abortUrl &amp;&amp; (state.status === 'processing' || state.status === 'loading')">
                     <i t-if="state.cancelling" class="fa fa-spinner fa-spin me-1"/>
                     <t t-if="state.cancelling" t-esc="_t('Cancelando...')"/>
                     <t t-if="!state.cancelling" t-esc="_t('Cancelar pago')"/>
