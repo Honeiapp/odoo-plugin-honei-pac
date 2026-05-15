@@ -23,17 +23,20 @@ export class HoneiValidationPopup extends Component
         apiBaseUrl: { type: String, optional: true },
         amount: { type: Number, optional: false },
         currency: { type: String, optional: true },
+        defaultTerminalId: { type: [Number, { value: null }], optional: true },
+        onTerminalSelected: { type: Function, optional: true },
         onConfirm: { type: Function, optional: true },
         onCancel: { type: Function, optional: true },
         onError: { type: Function, optional: true },
     };
 
     static defaultProps = {
-        title: _t( "Procesando pago Honei" ),
+        title: _t( "Procesando pago honei" ),
         confirmText: _t( "Confirmar pago" ),
         cancelText: _t( "Cancelar" ),
         currency: "EUR",
         honeiConfigs: [],
+        onTerminalSelected: () => { },
         onConfirm: () => { },
         onCancel: () => { },
         onError: () => { },
@@ -47,10 +50,33 @@ export class HoneiValidationPopup extends Component
             status: "idle",
             errorMessage: "",
             statusMessage: "",
+            cancelling: false,
         } );
 
         this._t = _t;
         this._polling = false;
+        this._abortUrl = null;
+
+        const configs = this.props.honeiConfigs || [];
+
+        if ( configs.length === 1 )
+        {
+            this._selectConfig( configs[0] );
+            this.confirm();
+        } else if ( this.props.defaultTerminalId != null && configs.length > 1 )
+        {
+            const defaultConfig = configs.find( ( c ) => c.id === this.props.defaultTerminalId );
+            if ( defaultConfig )
+            {
+                this._selectConfig( defaultConfig );
+            }
+        }
+    }
+
+    _selectConfig( config )
+    {
+        this.state.selectedHoneiConfigId = config.id;
+        this.state.selectedHoneiConfig = config;
     }
 
     selectHoneiConfig( config )
@@ -82,7 +108,7 @@ export class HoneiValidationPopup extends Component
         if ( !response.ok )
         {
             const error = await response.json().catch( () => ( {} ) );
-            throw new Error( error.reason || error.message || `Error ${response.status}` );
+            throw new Error( error.message || error.reason || `Error ${response.status}` );
         }
 
         return await response.json();
@@ -123,7 +149,7 @@ export class HoneiValidationPopup extends Component
     {
         if ( this.props.honeiConfigs?.length > 0 && !this.state.selectedHoneiConfig )
         {
-            this.state.errorMessage = this._t( "Por favor, selecciona una opción de pago Honei." );
+            this.state.errorMessage = this._t( "Por favor, selecciona un terminal de cobro." );
             this.state.status = "error";
             return;
         }
@@ -147,6 +173,8 @@ export class HoneiValidationPopup extends Component
             return;
         }
 
+        this.props.onTerminalSelected( this.state.selectedHoneiConfig.id );
+
         const terminalId = this.state.selectedHoneiConfig.code;
         const amount = this.props.amount;
         const currency = this.props.currency;
@@ -156,8 +184,11 @@ export class HoneiValidationPopup extends Component
             this.state.status = "loading";
             this.state.statusMessage = this._t( "Iniciando pago..." );
             this.state.errorMessage = "";
+            this.state.cancelling = false;
+            this._abortUrl = null;
 
             const initResult = await this._initPayment( terminalId, amount, currency );
+            this._abortUrl = initResult.paymentAbortUrl || null;
 
             this.state.status = "processing";
             this.state.statusMessage = this._t( "Esperando confirmación en el terminal..." );
@@ -190,12 +221,41 @@ export class HoneiValidationPopup extends Component
         {
             this.state.status = "error";
             this.state.errorMessage =
-                error.message || this._t( "Error de conexión con el servidor Honei." );
+                error.message || this._t( "Error de conexión con el servidor honei." );
         }
     }
 
-    cancel()
+    async _abortPayment( abortUrl )
     {
+        const response = await fetch( abortUrl, {
+            method: "DELETE",
+            headers: this._getHeaders(),
+        } );
+
+        if ( !response.ok )
+        {
+            const error = await response.json().catch( () => ( {} ) );
+            throw new Error( error.reason || error.message || `Error ${response.status}` );
+        }
+    }
+
+    async cancel()
+    {
+        if ( this._abortUrl && ( this.state.status === "processing" || this.state.status === "loading" ) )
+        {
+            this.state.cancelling = true;
+            try
+            {
+                await this._abortPayment( this._abortUrl );
+            } catch ( error )
+            {
+                // Abort failed, stop polling and close anyway
+            }
+            // Don't close yet — let the polling loop pick up the cancelled/error status
+            // and it will resolve naturally via the status check in confirm()
+            return;
+        }
+
         this._polling = false;
         this.props.onCancel();
         this.props.close();

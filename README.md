@@ -6,7 +6,7 @@ Procesa pagos a través de Honei Terminal desde el Punto de venta de Odoo.
 
 ## Requisitos
 
-- Odoo 18
+- Odoo 19
 - Módulo **Punto de venta** instalado
 
 ---

@@ -1,31 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
     <t t-name="honei_terminal.HoneiValidationPopup" owl="1">
-        <Dialog title="props.title || _t('Selecciona método Honei')"
+        <Dialog title="props.title || _t('Selecciona un terminal de cobro')"
                 size="'md'"
-                footer="footer">
+                footer="footer"
+                contentClass="state.status === 'processing' || state.status === 'loading' ? 'honei-no-close' : ''">
             <main class="body">
                 <p t-if="!props.honeiConfigs || props.honeiConfigs.length === 0">
-                    No hay configuraciones de pago Honei disponibles. Contacta con el administrador.
+                    No hay configuraciones de pago honei disponibles. Contacta con el administrador.
                 </p>
 
                 <!-- Terminal selection (only visible in idle/error state) -->
                 <div t-if="props.honeiConfigs &amp;&amp; props.honeiConfigs.length > 0 &amp;&amp; (state.status === 'idle' || state.status === 'error')"
                      class="honei-options-list d-flex flex-wrap">
-                    <p class="w-100 mb-2">Por favor, selecciona un terminal de pago Honei:</p>
+                    <p class="w-100 mb-2">Por favor, selecciona un terminal de cobro:</p>
                     <t t-foreach="props.honeiConfigs" t-as="config" t-key="config.id">
                         <button class="btn btn-outline-secondary selection-button m-1 flex-grow-1"
                                 t-att-class="state.selectedHoneiConfigId === config.id ? 'active btn-primary' : ''"
                                 t-on-click="() => this.selectHoneiConfig(config)">
-                            <t t-esc="config.name"/> (<t t-esc="config.code"/>)
+                            <t t-esc="config.name"/>
                         </button>
                     </t>
                 </div>
 
                 <!-- Loading / Processing state -->
-                <div t-if="state.status === 'loading' || state.status === 'processing'" class="text-center mt-3 py-4">
-                    <i class="fa fa-spinner fa-spin fa-3x mb-3 d-block text-primary"/>
-                    <p class="fs-5"><t t-esc="state.statusMessage"/></p>
+                <div t-if="state.status === 'loading' || state.status === 'processing'" class="text-center mt-2 py-3">
+                    <i class="fa fa-spinner fa-spin fa-2x mb-2 d-block text-primary"/>
+                    <p class="mb-0"><t t-esc="state.statusMessage"/></p>
                 </div>
 
                 <!-- Error state -->
@@ -45,8 +46,18 @@
                     <t t-esc="props.confirmText || _t('Confirmar pago')"/>
                 </button>
                 <button
+                    class="btn btn-danger"
+                    t-on-click="cancel"
+                    t-att-disabled="state.cancelling"
+                    t-if="state.status === 'processing' || state.status === 'loading'">
+                    <i t-if="state.cancelling" class="fa fa-spinner fa-spin me-1"/>
+                    <t t-if="state.cancelling" t-esc="_t('Cancelando...')"/>
+                    <t t-if="!state.cancelling" t-esc="_t('Cancelar pago')"/>
+                </button>
+                <button
                     class="btn btn-secondary"
-                    t-on-click="cancel">
+                    t-on-click="cancel"
+                    t-if="state.status === 'idle' || state.status === 'error'">
                     <t t-esc="props.cancelText || _t('Cancelar')"/>
                 </button>
             </t>

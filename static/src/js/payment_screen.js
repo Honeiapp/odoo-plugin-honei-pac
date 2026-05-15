@@ -6,10 +6,15 @@ import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { _t } from "@web/core/l10n/translation";
 import { HoneiValidationPopup } from "./honei_validation_popup";
 
+let _lastHoneiTerminalId = null;
+
 patch(PaymentScreen.prototype, {
     setup() {
         super.setup(...arguments);
-        this.honei_terminal = this.pos.config.baseData[this.pos.config.id].honei_terminal_data || [];
+        const allTerminals = this.pos.models["pos.config.honei_terminal"]?.getAll() || [];
+        this.honei_terminal = allTerminals
+            .filter((t) => t.pos_config_id?.id === this.pos.config.id)
+            .map((t) => ({ id: t.id, name: t.name, code: t.terminal_id }));
     },
 
     async addNewPaymentLine(paymentMethod) {
@@ -22,13 +27,13 @@ patch(PaymentScreen.prototype, {
         if (this.honei_terminal.length === 0) {
             this.dialog.add(AlertDialog, {
                 title: _t("Error de configuración"),
-                body: _t("No se han encontrado configuraciones de pago Honei válidas."),
+                body: _t("No se han encontrado configuraciones de pago honei válidas."),
             });
-            return;
+            return false;
         }
 
-        const order = this.currentOrder || this.pos.get_order();
-        const amount = order.get_due();
+        const order = this.currentOrder;
+        const amount = order.remainingDue;
         const currency = this.pos.currency?.name || "EUR";
 
         const apiBaseUrl = paymentMethod.is_staging
@@ -37,9 +42,13 @@ patch(PaymentScreen.prototype, {
 
         return new Promise((resolve) => {
             this.dialog.add(HoneiValidationPopup, {
-                title: _t("Selecciona una opción de pago Honei"),
+                title: _t("Selecciona un terminal de cobro"),
                 paymentMethodName: paymentMethod.name,
                 honeiConfigs: this.honei_terminal,
+                defaultTerminalId: _lastHoneiTerminalId,
+                onTerminalSelected: (terminalId) => {
+                    _lastHoneiTerminalId = terminalId;
+                },
                 venueApiKey: paymentMethod.venue_api_key || "",
                 integrationSecret: paymentMethod.odoo_integration_secret || "",
                 apiBaseUrl: apiBaseUrl,
@@ -51,36 +60,36 @@ patch(PaymentScreen.prototype, {
                             title: _t("Error de pago"),
                             body: _t("El pago no se ha podido procesar correctamente."),
                         });
-                        resolve(null);
+                        resolve(false);
                         return;
                     }
 
-                    const paymentLineAdded = await super.addNewPaymentLine(paymentMethod);
-                    if (paymentLineAdded) {
-                        const currentOrder = this.currentOrder || this.pos.get_order();
-                        const newLine = currentOrder.get_selected_paymentline();
+                    const result = this.currentOrder.addPaymentline(paymentMethod);
+                    if (result.status) {
+                        const newLine = this.paymentLines.at(-1);
                         if (newLine) {
                             newLine.transaction_id = apiResponse.transactionId;
-                            newLine.set_payment_status(apiResponse.status);
+                            newLine.payment_status = apiResponse.status;
                             newLine.payment_ref_no = selectedHoneiConfig.code;
-                            resolve(newLine);
+                            resolve(true);
+                            await this.validateOrder(false);
                         } else {
                             this.dialog.add(AlertDialog, {
                                 title: _t("Error de línea de pago"),
                                 body: _t("No se ha podido obtener la línea de pago recién creada."),
                             });
-                            resolve(null);
+                            resolve(false);
                         }
                     } else {
                         this.dialog.add(AlertDialog, {
                             title: _t("Error al añadir pago"),
-                            body: _t("No se ha podido añadir la línea de pago. Inténtalo de nuevo."),
+                            body: result.data,
                         });
-                        resolve(null);
+                        resolve(false);
                     }
                 },
                 onCancel: () => {
-                    resolve(null);
+                    resolve(false);
                 }
             });
         });
