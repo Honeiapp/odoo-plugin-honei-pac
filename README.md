@@ -136,8 +136,6 @@ En ambos casos se envía la petición de aborto a la API de Honei y se libera el
 | Abortar con Atrás | Cancela el pago pendiente en el datáfono vía API. |
 | Validación automática | Tras un pago honei correcto, se añade la línea de pago y se valida la orden sin pasos extra. |
 
-> **Nota:** El comportamiento del datáfono físico (no imprimir ticket en papel, mostrar "Aprobado"/"Cancelado" unos segundos, etc.) depende de la configuración del terminal Honei, no solo de este plugin.
-
 ---
 
 ## 6. Resolución de problemas
