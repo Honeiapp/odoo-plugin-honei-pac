@@ -146,10 +146,6 @@ En ambos casos se envía la petición de aborto a la API de Honei y se libera el
 - Pulsa **Actualizar lista de aplicaciones** en Apps.
 - Si usas Docker, reinicia Odoo después de copiar el módulo.
 
-### Error de columna inexistente (p. ej. `honei_auto_next_order does not exist`)
-
-El módulo no se ha actualizado en la base de datos. Actualízalo (apartado 1.4) y recarga el POS.
-
 ### Los estilos del POS se ven mal o el popup no carga
 
 - En la base de datos se pueden haber quedado assets cacheados. Ejemplo con Docker:
