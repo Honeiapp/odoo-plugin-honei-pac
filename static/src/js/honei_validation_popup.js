@@ -1,13 +1,18 @@
 /** @odoo-module **/
 
 import { _t } from "@web/core/l10n/translation";
-import { Component, useState } from "@odoo/owl";
+import { Component, onMounted, onWillDestroy, useState } from "@odoo/owl";
 import { Dialog } from "@web/core/dialog/dialog";
 
 const POLL_INTERVAL_MS = 2000;
 
-export class HoneiValidationPopup extends Component
-{
+let activeHoneiValidationPopup = null;
+
+export function getActiveHoneiValidationPopup() {
+    return activeHoneiValidationPopup;
+}
+
+export class HoneiValidationPopup extends Component {
     static template = "honei_terminal.HoneiValidationPopup";
     static components = { Dialog };
 
@@ -31,20 +36,19 @@ export class HoneiValidationPopup extends Component
     };
 
     static defaultProps = {
-        title: _t( "Procesando pago honei" ),
-        confirmText: _t( "Confirmar pago" ),
-        cancelText: _t( "Cancelar" ),
+        title: _t("Procesando pago honei"),
+        confirmText: _t("Confirmar pago"),
+        cancelText: _t("Cancelar"),
         currency: "EUR",
         honeiConfigs: [],
-        onTerminalSelected: () => { },
-        onConfirm: () => { },
-        onCancel: () => { },
-        onError: () => { },
+        onTerminalSelected: () => {},
+        onConfirm: () => {},
+        onCancel: () => {},
+        onError: () => {},
     };
 
-    setup()
-    {
-        this.state = useState( {
+    setup() {
+        this.state = useState({
             selectedHoneiConfigId: null,
             selectedHoneiConfig: null,
             status: "idle",
@@ -52,213 +56,244 @@ export class HoneiValidationPopup extends Component
             statusMessage: "",
             cancelling: false,
             abortUrl: null,
-        } );
+        });
 
         this._t = _t;
         this._polling = false;
-        this.state.abortUrl = null;
+        this._closed = false;
+
+        onMounted(() => {
+            activeHoneiValidationPopup = this;
+            this._bindDismissHandler();
+        });
+
+        onWillDestroy(() => {
+            if (activeHoneiValidationPopup === this) {
+                activeHoneiValidationPopup = null;
+            }
+            this._clearDismissHandler();
+        });
 
         const configs = this.props.honeiConfigs || [];
 
-        if ( configs.length === 1 )
-        {
-            this._selectConfig( configs[0] );
+        if (configs.length === 1) {
+            this._selectConfig(configs[0]);
             this.confirm();
-        } else if ( this.props.defaultTerminalId != null && configs.length > 1 )
-        {
-            const defaultConfig = configs.find( ( c ) => c.id === this.props.defaultTerminalId );
-            if ( defaultConfig )
-            {
-                this._selectConfig( defaultConfig );
+        } else if (this.props.defaultTerminalId != null && configs.length > 1) {
+            const defaultConfig = configs.find((c) => c.id === this.props.defaultTerminalId);
+            if (defaultConfig) {
+                this._selectConfig(defaultConfig);
             }
         }
     }
 
-    _selectConfig( config )
-    {
+    isProcessing() {
+        return this.state.status === "loading" || this.state.status === "processing";
+    }
+
+    _bindDismissHandler() {
+        if (!this.env.dialogData) {
+            return;
+        }
+        this.env.dialogData.dismiss = async () => {
+            if (this.isProcessing()) {
+                await this.cancel(true);
+            }
+        };
+    }
+
+    _clearDismissHandler() {
+        if (this.env.dialogData?.dismiss) {
+            delete this.env.dialogData.dismiss;
+        }
+    }
+
+    _selectConfig(config) {
         this.state.selectedHoneiConfigId = config.id;
         this.state.selectedHoneiConfig = config;
     }
 
-    selectHoneiConfig( config )
-    {
+    selectHoneiConfig(config) {
         this.state.selectedHoneiConfigId = config.id;
         this.state.selectedHoneiConfig = config;
         this.state.errorMessage = "";
         this.state.status = "idle";
     }
 
-    _getHeaders()
-    {
+    _getHeaders() {
         return {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${this.props.integrationSecret || ""}`,
+            Authorization: `Bearer ${this.props.integrationSecret || ""}`,
             "venue-api-key": this.props.venueApiKey || "",
         };
     }
 
-    async _initPayment( terminalId, amount, currency )
-    {
+    async _initPayment(terminalId, amount, currency) {
         const url = `${this.props.apiBaseUrl || ""}/terminals/${terminalId}/init-payment`;
-        const response = await fetch( url, {
+        const response = await fetch(url, {
             method: "POST",
             headers: this._getHeaders(),
-            body: JSON.stringify( { amount, currency } ),
-        } );
+            body: JSON.stringify({ amount, currency }),
+        });
 
-        if ( !response.ok )
-        {
-            const error = await response.json().catch( () => ( {} ) );
-            throw new Error( error.message || error.reason || `Error ${response.status}` );
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || error.reason || `Error ${response.status}`);
         }
 
         return await response.json();
     }
 
-    async _pollPaymentStatus( statusUrl )
-    {
+    async _pollPaymentStatus(statusUrl) {
         this._polling = true;
 
-        while ( this._polling )
-        {
-            const response = await fetch( statusUrl, {
+        while (this._polling) {
+            const response = await fetch(statusUrl, {
                 method: "GET",
                 headers: this._getHeaders(),
-            } );
+            });
 
-            if ( !response.ok )
-            {
-                const error = await response.json().catch( () => ( {} ) );
-                throw new Error( error.reason || error.message || `Error ${response.status}` );
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                throw new Error(error.reason || error.message || `Error ${response.status}`);
             }
 
             const data = await response.json();
 
-            if ( data.status !== "processing" )
-            {
+            if (data.status !== "processing") {
                 this._polling = false;
                 return data;
             }
 
-            await new Promise( ( resolve ) => setTimeout( resolve, POLL_INTERVAL_MS ) );
+            await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
         }
 
         return { status: "cancelled" };
     }
 
-    async confirm()
-    {
-        if ( this.props.honeiConfigs?.length > 0 && !this.state.selectedHoneiConfig )
-        {
-            this.state.errorMessage = this._t( "Por favor, selecciona un terminal de cobro." );
+    async confirm() {
+        if (this.props.honeiConfigs?.length > 0 && !this.state.selectedHoneiConfig) {
+            this.state.errorMessage = this._t("Por favor, selecciona un terminal de cobro.");
             this.state.status = "error";
             return;
         }
 
-        if ( !this.props.venueApiKey?.trim() )
-        {
-            this.state.errorMessage = this._t( "Venue API Key no configurada." );
+        if (!this.props.venueApiKey?.trim()) {
+            this.state.errorMessage = this._t("Venue API Key no configurada.");
             this.state.status = "error";
             return;
         }
-        if ( !this.props.integrationSecret?.trim() )
-        {
-            this.state.errorMessage = this._t( "Odoo Integration Secret no configurado." );
+        if (!this.props.integrationSecret?.trim()) {
+            this.state.errorMessage = this._t("Odoo Integration Secret no configurado.");
             this.state.status = "error";
             return;
         }
-        if ( !this.state.selectedHoneiConfig )
-        {
-            this.state.errorMessage = this._t( "Selecciona un terminal de pago." );
+        if (!this.state.selectedHoneiConfig) {
+            this.state.errorMessage = this._t("Selecciona un terminal de pago.");
             this.state.status = "error";
             return;
         }
 
-        this.props.onTerminalSelected( this.state.selectedHoneiConfig.id );
+        this.props.onTerminalSelected(this.state.selectedHoneiConfig.id);
 
         const terminalId = this.state.selectedHoneiConfig.code;
         const amount = this.props.amount;
         const currency = this.props.currency;
 
-        try
-        {
+        try {
             this.state.status = "loading";
-            this.state.statusMessage = this._t( "Iniciando pago..." );
+            this.state.statusMessage = this._t("Iniciando pago...");
             this.state.errorMessage = "";
             this.state.cancelling = false;
             this.state.abortUrl = null;
+            this._bindDismissHandler();
 
-            const initResult = await this._initPayment( terminalId, amount, currency );
+            const initResult = await this._initPayment(terminalId, amount, currency);
             this.state.abortUrl = initResult.paymentAbortUrl || null;
 
             this.state.status = "processing";
-            this.state.statusMessage = this._t( "Esperando confirmación en el terminal..." );
+            this.state.statusMessage = this._t("Esperando confirmación en el terminal...");
 
-            const statusResult = await this._pollPaymentStatus( initResult.paymentStatusUrl );
+            const statusResult = await this._pollPaymentStatus(initResult.paymentStatusUrl);
 
-            if ( statusResult.status === "completed" )
-            {
+            if (this._closed) {
+                return;
+            }
+
+            if (statusResult.status === "completed") {
                 this.state.status = "completed";
                 const apiResponse = {
                     transactionId: initResult.paymentId,
                     status: "done",
                     tip: statusResult.tip || 0,
                 };
-                this.props.onConfirm( this.state.selectedHoneiConfig, apiResponse );
-                this.props.close();
-            } else
-            {
+                this.props.onConfirm(this.state.selectedHoneiConfig, apiResponse);
+                this._close();
+            } else {
                 const messages = {
-                    declined: this._t( "El pago ha sido rechazado." ),
-                    not_completed: this._t( "El pago no se ha completado." ),
-                    timed_out: this._t( "El pago ha excedido el tiempo de espera." ),
-                    cancelled: this._t( "El pago ha sido cancelado." ),
+                    declined: this._t("El pago ha sido rechazado."),
+                    not_completed: this._t("El pago no se ha completado."),
+                    timed_out: this._t("El pago ha excedido el tiempo de espera."),
+                    cancelled: this._t("El pago ha sido cancelado."),
                 };
                 this.state.status = "error";
                 this.state.errorMessage =
-                    messages[statusResult.status] || this._t( "Error desconocido en el pago." );
+                    messages[statusResult.status] || this._t("Error desconocido en el pago.");
+                this._clearDismissHandler();
             }
-        } catch ( error )
-        {
-            this.state.status = "error";
-            this.state.errorMessage =
-                error.message || this._t( "Error de conexión con el servidor honei." );
+        } catch (error) {
+            if (!this._closed) {
+                this.state.status = "error";
+                this.state.errorMessage =
+                    error.message || this._t("Error de conexión con el servidor honei.");
+                this._clearDismissHandler();
+            }
         }
     }
 
-    async _abortPayment( abortUrl )
-    {
-        const response = await fetch( abortUrl, {
+    async _abortPayment(abortUrl) {
+        const response = await fetch(abortUrl, {
             method: "DELETE",
             headers: this._getHeaders(),
-        } );
+        });
 
-        if ( !response.ok )
-        {
-            const error = await response.json().catch( () => ( {} ) );
-            throw new Error( error.reason || error.message || `Error ${response.status}` );
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.reason || error.message || `Error ${response.status}`);
         }
     }
 
-    async cancel()
-    {
-        if ( this.state.abortUrl && ( this.state.status === "processing" || this.state.status === "loading" ) )
-        {
+    _close() {
+        if (this._closed) {
+            return;
+        }
+        this._closed = true;
+        this._polling = false;
+        this._clearDismissHandler();
+        this.props.close();
+    }
+
+    async cancel(forceClose = false) {
+        if (
+            this.state.abortUrl &&
+            (this.state.status === "processing" || this.state.status === "loading")
+        ) {
+            this._polling = false;
             this.state.cancelling = true;
-            try
-            {
-                await this._abortPayment( this.state.abortUrl );
-            } catch ( error )
-            {
-                // Abort failed, stop polling and close anyway
+            try {
+                await this._abortPayment(this.state.abortUrl);
+            } catch {
+                // Si falla el abort, cerramos igualmente para no dejar al cajero bloqueado.
             }
-            // Don't close yet — let the polling loop pick up the cancelled/error status
-            // and it will resolve naturally via the status check in confirm()
+            if (forceClose) {
+                this.props.onCancel();
+                this._close();
+            }
             return;
         }
 
         this._polling = false;
         this.props.onCancel();
-        this.props.close();
+        this._close();
     }
 }

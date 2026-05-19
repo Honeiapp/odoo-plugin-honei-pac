@@ -11,6 +11,7 @@
           <field name="venue_api_key" invisible="not is_honei_payment"/>
           <field name="is_staging" invisible="not is_honei_payment"/>
           <field name="odoo_integration_secret" invisible="not is_honei_payment" password="True"/>
+          <field name="honei_auto_next_order" invisible="not is_honei_payment"/>
         </field>
       </field>
     </record>

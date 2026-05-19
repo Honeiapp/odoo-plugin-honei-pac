@@ -22,9 +22,21 @@ class PosPaymentMethod(models.Model):
         "Odoo Integration Secret",
         help="Secreto de integración. Se envía en el header Authorization Bearer.",
     )
+    honei_auto_next_order = fields.Boolean(
+        "Ir a la siguiente venta tras el pago",
+        default=False,
+        help="Si está marcado, al completar un pago honei se registra la venta y se abre "
+        "directamente una nueva venta, sin pasar por la pantalla del ticket.",
+    )
 
     @api.model
     def _load_pos_data_fields(self, config):
         fields_list = super()._load_pos_data_fields(config)
-        fields_list += ["is_honei_payment", "venue_api_key", "is_staging", "odoo_integration_secret"]
+        fields_list += [
+            "is_honei_payment",
+            "venue_api_key",
+            "is_staging",
+            "odoo_integration_secret",
+            "honei_auto_next_order",
+        ]
         return fields_list
