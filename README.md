@@ -173,15 +173,6 @@ El módulo no se ha actualizado en la base de datos. Actualízalo (apartado 1.4)
 
 - Recarga el POS (F5). Si persiste, comprueba que el módulo esté en la versión **19.0.0.2.0** o superior y actualizado en la base de datos.
 
-### El datáfono queda bloqueado tras pulsar Atrás
-
-- Asegúrate de tener la versión actual del plugin (aborto automático al pulsar Atrás o cerrar el popup durante el pago).
-- Si el datáfono sigue bloqueado, puede ser un estado del terminal; reinicia la sesión del POS o el datáfono según el manual de Honei.
-
-### Errores de red o CORS al llamar a la API
-
-- Si la API de Honei no acepta peticiones desde el origen de tu Odoo (p. ej. `http://localhost:8069`), hay que configurar CORS en el backend de Honei para ese origen, o exponer las llamadas vía un proxy en tu servidor.
-
 ---
 
 ## 7. Estructura del módulo (referencia)
