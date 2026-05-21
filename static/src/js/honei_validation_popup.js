@@ -283,9 +283,9 @@ export class HoneiValidationPopup extends Component {
             try {
                 await this._abortPayment(this.state.abortUrl);
             } catch {
-                // Si falla el abort, dejamos que el polling siga y muestre el resultado.
+                // If abort fails, let polling continue and show the result.
             }
-            // No paramos el polling ni cerramos: el GET en curso recogerá el estado de error.
+            // Don't stop polling or close: the ongoing GET will pick up the error status.
             return;
         }
 
