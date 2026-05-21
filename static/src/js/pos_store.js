@@ -8,7 +8,7 @@ patch(PosStore.prototype, {
     async onClickBackButton() {
         const honeiPopup = getActiveHoneiValidationPopup();
         if (honeiPopup) {
-            await honeiPopup.cancel(true);
+            await honeiPopup.cancel();
             return;
         }
         return super.onClickBackButton(...arguments);

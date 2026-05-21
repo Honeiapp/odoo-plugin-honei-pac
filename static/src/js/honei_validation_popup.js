@@ -4,7 +4,7 @@ import { _t } from "@web/core/l10n/translation";
 import { Component, onMounted, onWillDestroy, useState } from "@odoo/owl";
 import { Dialog } from "@web/core/dialog/dialog";
 
-const POLL_INTERVAL_MS = 2000;
+const POLL_INTERVAL_MS = 1000;
 
 let activeHoneiValidationPopup = null;
 
@@ -97,7 +97,7 @@ export class HoneiValidationPopup extends Component {
         }
         this.env.dialogData.dismiss = async () => {
             if (this.isProcessing()) {
-                await this.cancel(true);
+                await this.cancel();
             }
         };
     }
@@ -273,22 +273,19 @@ export class HoneiValidationPopup extends Component {
         this.props.close();
     }
 
-    async cancel(forceClose = false) {
+    async cancel() {
         if (
             this.state.abortUrl &&
             (this.state.status === "processing" || this.state.status === "loading")
         ) {
-            this._polling = false;
             this.state.cancelling = true;
+            this.state.statusMessage = this._t("Cancelando pago...");
             try {
                 await this._abortPayment(this.state.abortUrl);
             } catch {
-                // Si falla el abort, cerramos igualmente para no dejar al cajero bloqueado.
+                // Si falla el abort, dejamos que el polling siga y muestre el resultado.
             }
-            if (forceClose) {
-                this.props.onCancel();
-                this._close();
-            }
+            // No paramos el polling ni cerramos: el GET en curso recogerá el estado de error.
             return;
         }
 

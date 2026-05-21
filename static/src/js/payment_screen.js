@@ -145,8 +145,7 @@ patch(PaymentScreen.prototype, {
                     onClose: async () => {
                         const popup = getActiveHoneiValidationPopup();
                         if (popup?.isProcessing()) {
-                            await popup.cancel(true);
-                            settle(false);
+                            await popup.cancel();
                         }
                     },
                 }
