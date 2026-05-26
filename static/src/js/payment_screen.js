@@ -59,9 +59,15 @@ patch(PaymentScreen.prototype, {
             return await super.addNewPaymentLine(paymentMethod);
         }
 
+        if (this._honeiPaymentInProgress) {
+            return false;
+        }
+        this._honeiPaymentInProgress = true;
+
         const honeiTerminals = await this._syncHoneiTerminals();
 
         if (honeiTerminals.length === 0) {
+            this._honeiPaymentInProgress = false;
             this.dialog.add(AlertDialog, {
                 title: _t("Error de configuración"),
                 body: _t("No se han encontrado configuraciones de pago honei válidas."),
@@ -82,6 +88,7 @@ patch(PaymentScreen.prototype, {
             const settle = (value) => {
                 if (!settled) {
                     settled = true;
+                    this._honeiPaymentInProgress = false;
                     resolve(value);
                 }
             };
@@ -147,6 +154,7 @@ patch(PaymentScreen.prototype, {
                         if (popup?.isProcessing()) {
                             await popup.cancel();
                         }
+                        settle(false);
                     },
                 }
             );
