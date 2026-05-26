@@ -33,6 +33,8 @@ export class HoneiValidationPopup extends Component {
         onConfirm: { type: Function, optional: true },
         onCancel: { type: Function, optional: true },
         onError: { type: Function, optional: true },
+        mode: { type: String, optional: true },
+        originalPaymentId: { type: String, optional: true },
     };
 
     static defaultProps = {
@@ -45,6 +47,8 @@ export class HoneiValidationPopup extends Component {
         onConfirm: () => {},
         onCancel: () => {},
         onError: () => {},
+        mode: "payment",
+        originalPaymentId: "",
     };
 
     setup() {
@@ -85,6 +89,10 @@ export class HoneiValidationPopup extends Component {
                 this._selectConfig(defaultConfig);
             }
         }
+    }
+
+    get isRefund() {
+        return this.props.mode === "refund";
     }
 
     isProcessing() {
@@ -134,6 +142,22 @@ export class HoneiValidationPopup extends Component {
             method: "POST",
             headers: this._getHeaders(),
             body: JSON.stringify({ amount, currency }),
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || error.reason || `Error ${response.status}`);
+        }
+
+        return await response.json();
+    }
+
+    async _initRefund(terminalId, paymentId, amount) {
+        const url = `${this.props.apiBaseUrl || ""}/terminals/${terminalId}/payments/${paymentId}/init-refund`;
+        const response = await fetch(url, {
+            method: "POST",
+            headers: this._getHeaders(),
+            body: JSON.stringify({ amount }),
         });
 
         if (!response.ok) {
@@ -197,49 +221,97 @@ export class HoneiValidationPopup extends Component {
         this.props.onTerminalSelected(this.state.selectedHoneiConfig.id);
 
         const terminalId = this.state.selectedHoneiConfig.code;
-        const amount = this.props.amount;
+        const amount = Math.abs(this.props.amount);
         const currency = this.props.currency;
 
         try {
             this.state.status = "loading";
-            this.state.statusMessage = this._t("Iniciando pago...");
             this.state.errorMessage = "";
             this.state.cancelling = false;
             this.state.abortUrl = null;
             this._bindDismissHandler();
 
-            const initResult = await this._initPayment(terminalId, amount, currency);
-            this.state.abortUrl = initResult.paymentAbortUrl || null;
+            if (this.isRefund) {
+                this.state.statusMessage = this._t("Iniciando devolución...");
+                const initResult = await this._initRefund(
+                    terminalId,
+                    this.props.originalPaymentId,
+                    amount
+                );
+                this.state.abortUrl = initResult.refundAbortUrl || null;
 
-            this.state.status = "processing";
-            this.state.statusMessage = this._t("Esperando confirmación en el terminal...");
+                this.state.status = "processing";
+                this.state.statusMessage = this._t(
+                    "Esperando confirmación de devolución en el terminal..."
+                );
 
-            const statusResult = await this._pollPaymentStatus(initResult.paymentStatusUrl);
+                const statusResult = await this._pollPaymentStatus(initResult.refundStatusUrl);
 
-            if (this._closed) {
-                return;
-            }
+                if (this._closed) {
+                    return;
+                }
 
-            if (statusResult.status === "completed") {
-                this.state.status = "completed";
-                const apiResponse = {
-                    transactionId: initResult.paymentId,
-                    status: "done",
-                    tip: statusResult.tip || 0,
-                };
-                this.props.onConfirm(this.state.selectedHoneiConfig, apiResponse);
-                this._close();
+                if (statusResult.status === "completed") {
+                    this.state.status = "completed";
+                    const apiResponse = {
+                        transactionId: initResult.refundId,
+                        status: "done",
+                    };
+                    this.props.onConfirm(this.state.selectedHoneiConfig, apiResponse);
+                    this._close();
+                } else {
+                    const messages = {
+                        declined: this._t("La devolución ha sido rechazada."),
+                        not_completed: this._t("La devolución no se ha completado."),
+                        timed_out: this._t("La devolución ha excedido el tiempo de espera."),
+                        cancelled: this._t("La devolución ha sido cancelada."),
+                    };
+                    this.state.status = "error";
+                    this.state.errorMessage =
+                        messages[statusResult.status] ||
+                        this._t("Error desconocido en la devolución.");
+                    this._clearDismissHandler();
+                }
             } else {
-                const messages = {
-                    declined: this._t("El pago ha sido rechazado."),
-                    not_completed: this._t("El pago no se ha completado."),
-                    timed_out: this._t("El pago ha excedido el tiempo de espera."),
-                    cancelled: this._t("El pago ha sido cancelado."),
-                };
-                this.state.status = "error";
-                this.state.errorMessage =
-                    messages[statusResult.status] || this._t("Error desconocido en el pago.");
-                this._clearDismissHandler();
+                this.state.statusMessage = this._t("Iniciando pago...");
+                const initResult = await this._initPayment(terminalId, amount, currency);
+                this.state.abortUrl = initResult.paymentAbortUrl || null;
+
+                this.state.status = "processing";
+                this.state.statusMessage = this._t(
+                    "Esperando confirmación en el terminal..."
+                );
+
+                const statusResult = await this._pollPaymentStatus(
+                    initResult.paymentStatusUrl
+                );
+
+                if (this._closed) {
+                    return;
+                }
+
+                if (statusResult.status === "completed") {
+                    this.state.status = "completed";
+                    const apiResponse = {
+                        transactionId: initResult.paymentId,
+                        status: "done",
+                        tip: statusResult.tip || 0,
+                    };
+                    this.props.onConfirm(this.state.selectedHoneiConfig, apiResponse);
+                    this._close();
+                } else {
+                    const messages = {
+                        declined: this._t("El pago ha sido rechazado."),
+                        not_completed: this._t("El pago no se ha completado."),
+                        timed_out: this._t("El pago ha excedido el tiempo de espera."),
+                        cancelled: this._t("El pago ha sido cancelado."),
+                    };
+                    this.state.status = "error";
+                    this.state.errorMessage =
+                        messages[statusResult.status] ||
+                        this._t("Error desconocido en el pago.");
+                    this._clearDismissHandler();
+                }
             }
         } catch (error) {
             if (!this._closed) {
@@ -279,7 +351,9 @@ export class HoneiValidationPopup extends Component {
             (this.state.status === "processing" || this.state.status === "loading")
         ) {
             this.state.cancelling = true;
-            this.state.statusMessage = this._t("Cancelando pago...");
+            this.state.statusMessage = this.isRefund
+                ? this._t("Cancelando devolución...")
+                : this._t("Cancelando pago...");
             try {
                 await this._abortPayment(this.state.abortUrl);
             } catch {

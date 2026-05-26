@@ -43,7 +43,7 @@
                     t-att-disabled="!state.selectedHoneiConfigId"
                     t-on-click="confirm"
                     t-if="state.status === 'idle' || state.status === 'error'">
-                    <t t-esc="props.confirmText || _t('Confirmar pago')"/>
+                    <t t-esc="props.confirmText || (isRefund ? _t('Confirmar devolución') : _t('Confirmar pago'))"/>
                 </button>
                 <button
                     class="btn btn-danger"
@@ -51,8 +51,8 @@
                     t-att-disabled="state.cancelling"
                     t-if="state.abortUrl &amp;&amp; (state.status === 'processing' || state.status === 'loading')">
                     <i t-if="state.cancelling" class="fa fa-spinner fa-spin me-1"/>
-                    <t t-if="state.cancelling" t-esc="_t('Cancelando...')"/>
-                    <t t-if="!state.cancelling" t-esc="_t('Cancelar pago')"/>
+                    <t t-if="state.cancelling" t-esc="isRefund ? _t('Cancelando...') : _t('Cancelando...')"/>
+                    <t t-if="!state.cancelling" t-esc="isRefund ? _t('Cancelar devolución') : _t('Cancelar pago')"/>
                 </button>
                 <button
                     class="btn btn-secondary"

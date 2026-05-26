@@ -52,6 +52,37 @@ patch(PaymentScreen.prototype, {
             }));
     },
 
+    _getOriginalHoneiPaymentId() {
+        const order = this.currentOrder;
+        const refundedLines = (order.lines || []).filter((l) => l.refunded_orderline_id);
+        if (refundedLines.length === 0) {
+            return null;
+        }
+
+        const originalOrder = refundedLines[0].refunded_orderline_id?.order_id;
+        if (!originalOrder) {
+            return null;
+        }
+
+        const originalPayment = (originalOrder.payment_ids || []).find(
+            (p) => p.payment_method_id?.is_honei_payment && p.transaction_id
+        );
+        return originalPayment?.transaction_id || null;
+    },
+
+    async _getOriginalHoneiPaymentIdRpc() {
+        const order = this.currentOrder;
+        if (!order.id) {
+            return null;
+        }
+        const result = await this.pos.data.call(
+            "pos.order",
+            "get_honei_refund_data",
+            [order.id]
+        );
+        return result ? result.original_payment_id : null;
+    },
+
     async addNewPaymentLine(paymentMethod) {
         const isHonei = paymentMethod.is_honei_payment;
 
@@ -64,6 +95,28 @@ patch(PaymentScreen.prototype, {
         }
         this._honeiPaymentInProgress = true;
 
+        const order = this.currentOrder;
+        const amount = order.remainingDue;
+        const isRefund = amount < 0;
+
+        let originalPaymentId = null;
+        if (isRefund) {
+            originalPaymentId = this._getOriginalHoneiPaymentId();
+            if (!originalPaymentId) {
+                originalPaymentId = await this._getOriginalHoneiPaymentIdRpc();
+            }
+            if (!originalPaymentId) {
+                this._honeiPaymentInProgress = false;
+                this.dialog.add(AlertDialog, {
+                    title: _t("Error de devolución"),
+                    body: _t(
+                        "No se ha encontrado el pago original de honei para esta devolución."
+                    ),
+                });
+                return false;
+            }
+        }
+
         const honeiTerminals = await this._syncHoneiTerminals();
 
         if (honeiTerminals.length === 0) {
@@ -75,8 +128,6 @@ patch(PaymentScreen.prototype, {
             return false;
         }
 
-        const order = this.currentOrder;
-        const amount = order.remainingDue;
         const currency = this.pos.currency?.name || "EUR";
 
         const apiBaseUrl = paymentMethod.is_staging
@@ -96,7 +147,12 @@ patch(PaymentScreen.prototype, {
             this.dialog.add(
                 HoneiValidationPopup,
                 {
-                    title: _t("Selecciona un terminal de cobro"),
+                    title: isRefund
+                        ? _t("Selecciona un terminal para la devolución")
+                        : _t("Selecciona un terminal de cobro"),
+                    confirmText: isRefund
+                        ? _t("Confirmar devolución")
+                        : _t("Confirmar pago"),
                     paymentMethodName: paymentMethod.name,
                     honeiConfigs: honeiTerminals,
                     defaultTerminalId: _lastHoneiTerminalId,
@@ -108,11 +164,21 @@ patch(PaymentScreen.prototype, {
                     apiBaseUrl: apiBaseUrl,
                     amount: amount,
                     currency: currency,
+                    mode: isRefund ? "refund" : "payment",
+                    originalPaymentId: originalPaymentId || "",
                     onConfirm: async (selectedHoneiConfig, apiResponse) => {
                         if (!apiResponse || apiResponse.status !== "done") {
                             this.dialog.add(AlertDialog, {
-                                title: _t("Error de pago"),
-                                body: _t("El pago no se ha podido procesar correctamente."),
+                                title: isRefund
+                                    ? _t("Error de devolución")
+                                    : _t("Error de pago"),
+                                body: isRefund
+                                    ? _t(
+                                          "La devolución no se ha podido procesar correctamente."
+                                      )
+                                    : _t(
+                                          "El pago no se ha podido procesar correctamente."
+                                      ),
                             });
                             settle(false);
                             return;
@@ -138,7 +204,9 @@ patch(PaymentScreen.prototype, {
                             }
                         } else {
                             this.dialog.add(AlertDialog, {
-                                title: _t("Error al añadir pago"),
+                                title: isRefund
+                                    ? _t("Error al añadir devolución")
+                                    : _t("Error al añadir pago"),
                                 body: result.data,
                             });
                             settle(false);
