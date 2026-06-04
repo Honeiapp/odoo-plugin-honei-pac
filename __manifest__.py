@@ -10,7 +10,7 @@ Procesa pagos a través de honei Terminal.
     "author": "honei",
     "website": "https://www.honei.app",
     "category": "Point of Sale",
-    "version": "19.0.0.2.0",
+    "version": "19.0.0.5.0",
     "license": "Other proprietary",
 
     "depends": [
@@ -31,8 +31,10 @@ Procesa pagos a través de honei Terminal.
             "honei_terminal/static/src/js/honei_validation_popup.js",
             "honei_terminal/static/src/js/order_payment_validation.js",
             "honei_terminal/static/src/js/pos_store.js",
+            "honei_terminal/static/src/js/navbar.js",
             "honei_terminal/static/src/js/payment_screen.js",
             "honei_terminal/static/src/xml/honei_validation_popup.xml",
+            "honei_terminal/static/src/xml/navbar.xml",
         ],
     },
 }

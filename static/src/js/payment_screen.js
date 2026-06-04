@@ -6,50 +6,14 @@ import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { _t } from "@web/core/l10n/translation";
 import { HoneiValidationPopup, getActiveHoneiValidationPopup } from "./honei_validation_popup";
 
-let _lastHoneiTerminalId = null;
-
 patch(PaymentScreen.prototype, {
     async _syncHoneiTerminals() {
-        const terminalModel = this.pos.models["pos.config.honei_terminal"];
-        const configId = this.pos.config.id;
-        const localIds = (terminalModel?.getAll() || [])
-            .filter((terminal) => terminal.pos_config_id?.id === configId)
-            .map((terminal) => terminal.id);
-
-        const syncResult = await this.pos.data.call(
-            "pos.config",
-            "sync_honei_terminals_pos_data",
-            [[configId], localIds]
-        );
-
-        if (!syncResult) {
-            return this._mapHoneiTerminals(terminalModel, configId);
-        }
-
-        for (const terminalId of syncResult.remove_ids || []) {
-            const record = terminalModel?.get(terminalId);
-            if (record) {
-                record.delete({ silent: true });
-            }
-        }
-
-        if (syncResult.records?.length) {
-            this.pos.models.connectNewData({
-                "pos.config.honei_terminal": syncResult.records,
-            });
-        }
-
-        return this._mapHoneiTerminals(terminalModel, configId);
-    },
-
-    _mapHoneiTerminals(terminalModel, configId) {
-        return (terminalModel?.getAll() || [])
-            .filter((terminal) => terminal.pos_config_id?.id === configId)
-            .map((terminal) => ({
-                id: terminal.id,
-                name: terminal.name,
-                code: terminal.terminal_id,
-            }));
+        const terminals = await this.pos.syncHoneiTerminals();
+        return terminals.map((terminal) => ({
+            id: terminal.id,
+            name: terminal.name,
+            code: terminal.terminal_id,
+        }));
     },
 
     _getOriginalHoneiPaymentId() {
@@ -128,6 +92,27 @@ patch(PaymentScreen.prototype, {
             return false;
         }
 
+        let selectedTerminal = null;
+        if (honeiTerminals.length === 1) {
+            selectedTerminal = honeiTerminals[0];
+        } else if (this.pos.honeiDefaultTerminalId != null) {
+            selectedTerminal =
+                honeiTerminals.find((t) => t.id === this.pos.honeiDefaultTerminalId) || null;
+        }
+
+        if (!selectedTerminal) {
+            this._honeiPaymentInProgress = false;
+            this.notification.add(
+                _t("1. Abre el menú ☰   2. Pulsa honei Terminal   3. Elige un terminal"),
+                {
+                    title: _t("Selecciona un terminal por defecto"),
+                    type: "warning",
+                    sticky: false,
+                }
+            );
+            return false;
+        }
+
         const currency = this.pos.currency?.name || "EUR";
 
         const apiBaseUrl = paymentMethod.is_staging
@@ -148,17 +133,9 @@ patch(PaymentScreen.prototype, {
                 HoneiValidationPopup,
                 {
                     title: isRefund
-                        ? _t("Selecciona un terminal para la devolución")
-                        : _t("Selecciona un terminal de cobro"),
-                    confirmText: isRefund
-                        ? _t("Confirmar devolución")
-                        : _t("Confirmar pago"),
-                    paymentMethodName: paymentMethod.name,
-                    honeiConfigs: honeiTerminals,
-                    defaultTerminalId: _lastHoneiTerminalId,
-                    onTerminalSelected: (terminalId) => {
-                        _lastHoneiTerminalId = terminalId;
-                    },
+                        ? _t("Procesando devolución honei")
+                        : _t("Procesando pago honei"),
+                    terminal: selectedTerminal,
                     venueApiKey: paymentMethod.venue_api_key || "",
                     integrationSecret: paymentMethod.odoo_integration_secret || "",
                     apiBaseUrl: apiBaseUrl,

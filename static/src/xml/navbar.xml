@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t t-name="honei_terminal.Navbar" t-inherit="point_of_sale.Navbar" t-inherit-mode="extension">
+        <xpath expr="//Dropdown[.//DropdownItem[contains(text(), 'Backend')]]" position="attributes">
+            <attribute name="onOpened">() => this.refreshHoneiTerminals()</attribute>
+        </xpath>
+        <xpath expr="//DropdownItem[contains(text(), 'Backend')]" position="before">
+            <Dropdown t-if="showHoneiTerminalMenu">
+                <button>honei Terminal</button>
+                <t t-set-slot="content">
+                    <t t-foreach="honeiTerminals" t-as="honeiTerminal" t-key="honeiTerminal.id">
+                        <DropdownItem
+                            closingMode="'none'"
+                            onSelected="() => this.selectHoneiTerminal(honeiTerminal)">
+                            <i class="fa fa-fw me-1"
+                               t-att-class="isHoneiTerminalSelected(honeiTerminal) ? 'fa-check text-primary' : ''"/>
+                            <t t-esc="honeiTerminal.name"/>
+                        </DropdownItem>
+                    </t>
+                </t>
+            </Dropdown>
+        </xpath>
+    </t>
+</templates>

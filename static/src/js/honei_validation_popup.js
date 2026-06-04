@@ -19,42 +19,38 @@ export class HoneiValidationPopup extends Component {
     static props = {
         close: Function,
         title: { type: String, optional: true },
-        confirmText: { type: String, optional: true },
         cancelText: { type: String, optional: true },
-        paymentMethodName: { type: String, optional: true },
-        honeiConfigs: { type: Array, optional: true },
+        terminal: {
+            type: Object,
+            shape: {
+                id: Number,
+                name: String,
+                code: String,
+            },
+        },
         venueApiKey: { type: String, optional: true },
         integrationSecret: { type: String, optional: true },
         apiBaseUrl: { type: String, optional: true },
         amount: { type: Number, optional: false },
         currency: { type: String, optional: true },
-        defaultTerminalId: { type: [Number, { value: null }], optional: true },
-        onTerminalSelected: { type: Function, optional: true },
         onConfirm: { type: Function, optional: true },
         onCancel: { type: Function, optional: true },
-        onError: { type: Function, optional: true },
         mode: { type: String, optional: true },
         originalPaymentId: { type: String, optional: true },
     };
 
     static defaultProps = {
         title: _t("Procesando pago honei"),
-        confirmText: _t("Confirmar pago"),
         cancelText: _t("Cancelar"),
         currency: "EUR",
-        honeiConfigs: [],
-        onTerminalSelected: () => {},
         onConfirm: () => {},
         onCancel: () => {},
-        onError: () => {},
         mode: "payment",
         originalPaymentId: "",
     };
 
     setup() {
         this.state = useState({
-            selectedHoneiConfigId: null,
-            selectedHoneiConfig: null,
             status: "idle",
             errorMessage: "",
             statusMessage: "",
@@ -69,6 +65,7 @@ export class HoneiValidationPopup extends Component {
         onMounted(() => {
             activeHoneiValidationPopup = this;
             this._bindDismissHandler();
+            this.confirm();
         });
 
         onWillDestroy(() => {
@@ -77,18 +74,6 @@ export class HoneiValidationPopup extends Component {
             }
             this._clearDismissHandler();
         });
-
-        const configs = this.props.honeiConfigs || [];
-
-        if (configs.length === 1) {
-            this._selectConfig(configs[0]);
-            this.confirm();
-        } else if (this.props.defaultTerminalId != null && configs.length > 1) {
-            const defaultConfig = configs.find((c) => c.id === this.props.defaultTerminalId);
-            if (defaultConfig) {
-                this._selectConfig(defaultConfig);
-            }
-        }
     }
 
     get isRefund() {
@@ -114,18 +99,6 @@ export class HoneiValidationPopup extends Component {
         if (this.env.dialogData?.dismiss) {
             delete this.env.dialogData.dismiss;
         }
-    }
-
-    _selectConfig(config) {
-        this.state.selectedHoneiConfigId = config.id;
-        this.state.selectedHoneiConfig = config;
-    }
-
-    selectHoneiConfig(config) {
-        this.state.selectedHoneiConfigId = config.id;
-        this.state.selectedHoneiConfig = config;
-        this.state.errorMessage = "";
-        this.state.status = "idle";
     }
 
     _getHeaders() {
@@ -196,12 +169,6 @@ export class HoneiValidationPopup extends Component {
     }
 
     async confirm() {
-        if (this.props.honeiConfigs?.length > 0 && !this.state.selectedHoneiConfig) {
-            this.state.errorMessage = this._t("Por favor, selecciona un terminal de cobro.");
-            this.state.status = "error";
-            return;
-        }
-
         if (!this.props.venueApiKey?.trim()) {
             this.state.errorMessage = this._t("Venue API Key no configurada.");
             this.state.status = "error";
@@ -212,15 +179,8 @@ export class HoneiValidationPopup extends Component {
             this.state.status = "error";
             return;
         }
-        if (!this.state.selectedHoneiConfig) {
-            this.state.errorMessage = this._t("Selecciona un terminal de pago.");
-            this.state.status = "error";
-            return;
-        }
 
-        this.props.onTerminalSelected(this.state.selectedHoneiConfig.id);
-
-        const terminalId = this.state.selectedHoneiConfig.code;
+        const terminalId = this.props.terminal.code;
         const amount = Math.abs(this.props.amount);
         const currency = this.props.currency;
 
@@ -257,7 +217,7 @@ export class HoneiValidationPopup extends Component {
                         transactionId: initResult.refundId,
                         status: "done",
                     };
-                    this.props.onConfirm(this.state.selectedHoneiConfig, apiResponse);
+                    this.props.onConfirm(this.props.terminal, apiResponse);
                     this._close();
                 } else {
                     const messages = {
@@ -297,7 +257,7 @@ export class HoneiValidationPopup extends Component {
                         status: "done",
                         tip: statusResult.tip || 0,
                     };
-                    this.props.onConfirm(this.state.selectedHoneiConfig, apiResponse);
+                    this.props.onConfirm(this.props.terminal, apiResponse);
                     this._close();
                 } else {
                     const messages = {
