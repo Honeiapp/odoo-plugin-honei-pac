@@ -13,14 +13,7 @@ patch(Navbar.prototype, {
     },
 
     get showHoneiTerminalMenu() {
-        return this.honeiTerminals.length > 1;
-    },
-
-    get showHoneiLogsMenu() {
-        return (
-            this.pos.getHoneiTerminalsForCurrentConfig().length > 0 ||
-            this.honeiTerminals.length > 0
-        );
+        return this.honeiTerminals.length >= 1;
     },
 
     isHoneiTerminalSelected(terminal) {
@@ -46,14 +39,6 @@ patch(Navbar.prototype, {
             await honeiLogger.export("txt");
         } catch (e) {
             console.error("[honei] download logs failed", e);
-        }
-    },
-
-    async clearHoneiLogs() {
-        try {
-            await honeiLogger.clear();
-        } catch (e) {
-            console.error("[honei] clear logs failed", e);
         }
     },
 });
