@@ -17,11 +17,17 @@ patch(Navbar.prototype, {
     },
 
     isHoneiTerminalSelected(terminal) {
+        if (this.honeiTerminals.length === 1) {
+            return true;
+        }
         return this.pos.honeiDefaultTerminalId === terminal.id;
     },
 
     selectHoneiTerminal(terminal) {
-        const next = this.isHoneiTerminalSelected(terminal) ? null : terminal.id;
+        if (this.honeiTerminals.length === 1) {
+            return;
+        }
+        const next = this.pos.honeiDefaultTerminalId === terminal.id ? null : terminal.id;
         this.pos.setHoneiDefaultTerminalId(next);
     },
 
