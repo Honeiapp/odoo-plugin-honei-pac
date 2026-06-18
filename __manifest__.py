@@ -28,6 +28,7 @@ Procesa pagos a través de honei Terminal.
     "assets": {
         "point_of_sale._assets_pos": [
             "honei_terminal/static/src/css/honei_terminal.css",
+            "honei_terminal/static/src/js/honei_logger.js",
             "honei_terminal/static/src/js/honei_validation_popup.js",
             "honei_terminal/static/src/js/order_payment_validation.js",
             "honei_terminal/static/src/js/pos_store.js",

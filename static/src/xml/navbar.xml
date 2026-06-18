@@ -19,6 +19,19 @@
                     </t>
                 </t>
             </Dropdown>
+            <Dropdown t-if="showHoneiLogsMenu">
+                <button>honei Logs</button>
+                <t t-set-slot="content">
+                    <DropdownItem onSelected="() => this.downloadHoneiLogs()">
+                        <i class="fa fa-fw fa-download me-1"/>
+                        Descargar logs
+                    </DropdownItem>
+                    <DropdownItem onSelected="() => this.clearHoneiLogs()">
+                        <i class="fa fa-fw fa-trash me-1"/>
+                        Borrar logs
+                    </DropdownItem>
+                </t>
+            </Dropdown>
         </xpath>
     </t>
 </templates>
