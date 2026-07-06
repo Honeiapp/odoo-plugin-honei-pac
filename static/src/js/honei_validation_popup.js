@@ -64,6 +64,15 @@ export class HoneiValidationPopup extends Component {
         this._closed = false;
 
         onMounted(() => {
+            if (activeHoneiValidationPopup && activeHoneiValidationPopup !== this) {
+                honeiLogger.warn("duplicate_popup_prevented", {
+                    mode: this.props.mode,
+                    amount: this.props.amount,
+                });
+                this._closed = true;
+                this.props.close();
+                return;
+            }
             activeHoneiValidationPopup = this;
             this._bindDismissHandler();
             this.confirm();

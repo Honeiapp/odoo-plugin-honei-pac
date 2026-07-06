@@ -34,6 +34,19 @@ patch(PosStore.prototype, {
     async setup() {
         await super.setup(...arguments);
         this.honeiDefaultTerminalId = readStoredHoneiTerminalId(this.config.id);
+        this.honeiPaymentInProgress = false;
+    },
+
+    tryReserveHoneiPayment() {
+        if (this.honeiPaymentInProgress) {
+            return false;
+        }
+        this.honeiPaymentInProgress = true;
+        return true;
+    },
+
+    releaseHoneiPayment() {
+        this.honeiPaymentInProgress = false;
     },
 
     setHoneiDefaultTerminalId(terminalId) {

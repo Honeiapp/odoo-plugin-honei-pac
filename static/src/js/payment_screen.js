@@ -1,5 +1,6 @@
 /** @odoo-module **/
 
+import { onWillUnmount } from "@odoo/owl";
 import { PaymentScreen } from "@point_of_sale/app/screens/payment_screen/payment_screen";
 import { patch } from "@web/core/utils/patch";
 import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
@@ -8,6 +9,18 @@ import { HoneiValidationPopup, getActiveHoneiValidationPopup } from "./honei_val
 import { honeiLogger } from "./honei_logger";
 
 patch(PaymentScreen.prototype, {
+    setup() {
+        super.setup(...arguments);
+        this._honeiDisposed = false;
+        onWillUnmount(() => {
+            this._honeiDisposed = true;
+            if (this.pos?.honeiPaymentInProgress && !getActiveHoneiValidationPopup()) {
+                honeiLogger.warn("payment_screen_unmount_releasing_lock");
+                this.pos.releaseHoneiPayment();
+            }
+        });
+    },
+
     async _syncHoneiTerminals() {
         const terminals = await this.pos.syncHoneiTerminals();
         return terminals.map((terminal) => ({
@@ -66,14 +79,13 @@ patch(PaymentScreen.prototype, {
             amount,
             isRefund,
             orderId: order.id || null,
-            inProgress: !!this._honeiPaymentInProgress,
+            inProgress: !!this.pos.honeiPaymentInProgress,
         });
 
-        if (this._honeiPaymentInProgress) {
+        if (!this.pos.tryReserveHoneiPayment()) {
             honeiLogger.warn("payment_button_ignored_in_progress");
             return false;
         }
-        this._honeiPaymentInProgress = true;
         const flowStart = performance.now();
 
         let originalPaymentId = null;
@@ -86,8 +98,12 @@ patch(PaymentScreen.prototype, {
             honeiLogger.info("refund_lookup_result", {
                 originalPaymentId: originalPaymentId || null,
             });
+            if (this._honeiDisposed) {
+                honeiLogger.warn("payment_flow_aborted_disposed", { stage: "refund_lookup" });
+                return false;
+            }
             if (!originalPaymentId) {
-                this._honeiPaymentInProgress = false;
+                this.pos.releaseHoneiPayment();
                 honeiLogger.error("refund_no_original_payment");
                 this.dialog.add(AlertDialog, {
                     title: _t("Error de devolución"),
@@ -100,10 +116,14 @@ patch(PaymentScreen.prototype, {
         }
 
         const honeiTerminals = await this._syncHoneiTerminals();
+        if (this._honeiDisposed) {
+            honeiLogger.warn("payment_flow_aborted_disposed", { stage: "sync_terminals" });
+            return false;
+        }
         honeiLogger.info("terminals_synced", { count: honeiTerminals.length });
 
         if (honeiTerminals.length === 0) {
-            this._honeiPaymentInProgress = false;
+            this.pos.releaseHoneiPayment();
             honeiLogger.error("no_terminals_available");
             this.dialog.add(AlertDialog, {
                 title: _t("Error de configuración"),
@@ -121,7 +141,7 @@ patch(PaymentScreen.prototype, {
         }
 
         if (!selectedTerminal) {
-            this._honeiPaymentInProgress = false;
+            this.pos.releaseHoneiPayment();
             honeiLogger.warn("no_default_terminal_selected", {
                 terminalsCount: honeiTerminals.length,
                 defaultId: this.pos.honeiDefaultTerminalId ?? null,
@@ -134,6 +154,12 @@ patch(PaymentScreen.prototype, {
                     sticky: false,
                 }
             );
+            return false;
+        }
+
+        if (getActiveHoneiValidationPopup()) {
+            this.pos.releaseHoneiPayment();
+            honeiLogger.warn("payment_flow_aborted_popup_already_active");
             return false;
         }
 
@@ -154,7 +180,7 @@ patch(PaymentScreen.prototype, {
             const settle = (value) => {
                 if (!settled) {
                     settled = true;
-                    this._honeiPaymentInProgress = false;
+                    this.pos.releaseHoneiPayment();
                     resolve(value);
                 }
             };
