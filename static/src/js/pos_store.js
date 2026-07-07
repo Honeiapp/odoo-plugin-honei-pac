@@ -2,7 +2,12 @@
 
 import { patch } from "@web/core/utils/patch";
 import { PosStore } from "@point_of_sale/app/services/pos_store";
-import { getActiveHoneiValidationPopup } from "./honei_validation_popup";
+import {
+    getActiveHoneiValidationPopup,
+    loadInFlightHoneiPayment,
+    clearInFlightHoneiPayment,
+} from "./honei_validation_popup";
+import { honeiLogger } from "./honei_logger";
 
 const HONEI_DEFAULT_TERMINAL_KEY_PREFIX = "honei_default_terminal_pos_";
 
@@ -35,6 +40,35 @@ patch(PosStore.prototype, {
         await super.setup(...arguments);
         this.honeiDefaultTerminalId = readStoredHoneiTerminalId(this.config.id);
         this.honeiPaymentInProgress = false;
+        this.pendingHoneiResume = null;
+        this._maybeQueueHoneiResume();
+    },
+
+    _maybeQueueHoneiResume() {
+        const state = loadInFlightHoneiPayment(this.config.id);
+        if (!state) {
+            return;
+        }
+        const order = this.models["pos.order"]?.find(
+            (o) => o.uuid === state.orderUuid
+        );
+        if (!order) {
+            honeiLogger.warn("inflight_resume_order_missing", {
+                orderUuid: state.orderUuid,
+                mode: state.mode,
+            });
+            clearInFlightHoneiPayment(this.config.id);
+            return;
+        }
+        honeiLogger.info("inflight_resume_queued", {
+            orderUuid: state.orderUuid,
+            mode: state.mode,
+            transactionId: state.transactionId,
+        });
+        this.pendingHoneiResume = state;
+        this.honeiPaymentInProgress = true;
+        this.setOrder(order);
+        this.navigate("PaymentScreen", { orderUuid: order.uuid });
     },
 
     tryReserveHoneiPayment() {
@@ -103,9 +137,7 @@ patch(PosStore.prototype, {
     },
 
     async onClickBackButton() {
-        const honeiPopup = getActiveHoneiValidationPopup();
-        if (honeiPopup) {
-            await honeiPopup.cancel();
+        if (getActiveHoneiValidationPopup()) {
             return;
         }
         return super.onClickBackButton(...arguments);

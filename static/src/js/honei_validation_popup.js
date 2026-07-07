@@ -1,16 +1,66 @@
 /** @odoo-module **/
 
 import { _t } from "@web/core/l10n/translation";
-import { Component, onMounted, onWillDestroy, useState } from "@odoo/owl";
+import { Component, onMounted, onWillDestroy, useExternalListener, useState } from "@odoo/owl";
 import { Dialog } from "@web/core/dialog/dialog";
 import { honeiLogger } from "./honei_logger";
 
 const POLL_INTERVAL_MS = 1000;
+const IN_FLIGHT_STORAGE_PREFIX = "honei_in_flight_payment_pos_";
+const IN_FLIGHT_TTL_MS = 24 * 60 * 60 * 1000;
 
 let activeHoneiValidationPopup = null;
 
 export function getActiveHoneiValidationPopup() {
     return activeHoneiValidationPopup;
+}
+
+function inFlightKey(posConfigId) {
+    return `${IN_FLIGHT_STORAGE_PREFIX}${posConfigId}`;
+}
+
+export function saveInFlightHoneiPayment(posConfigId, state) {
+    if (posConfigId == null) {
+        return;
+    }
+    try {
+        localStorage.setItem(inFlightKey(posConfigId), JSON.stringify(state));
+    } catch (e) {
+        honeiLogger.warn("inflight_save_failed", { message: e?.message || String(e) });
+    }
+}
+
+export function loadInFlightHoneiPayment(posConfigId) {
+    if (posConfigId == null) {
+        return null;
+    }
+    try {
+        const raw = localStorage.getItem(inFlightKey(posConfigId));
+        if (!raw) {
+            return null;
+        }
+        const state = JSON.parse(raw);
+        if (!state || typeof state !== "object") {
+            return null;
+        }
+        if (state.startedAt && Date.now() - state.startedAt > IN_FLIGHT_TTL_MS) {
+            clearInFlightHoneiPayment(posConfigId);
+            return null;
+        }
+        return state;
+    } catch (e) {
+        honeiLogger.warn("inflight_load_failed", { message: e?.message || String(e) });
+        return null;
+    }
+}
+
+export function clearInFlightHoneiPayment(posConfigId) {
+    if (posConfigId == null) {
+        return;
+    }
+    try {
+        localStorage.removeItem(inFlightKey(posConfigId));
+    } catch {}
 }
 
 export class HoneiValidationPopup extends Component {
@@ -38,6 +88,10 @@ export class HoneiValidationPopup extends Component {
         onCancel: { type: Function, optional: true },
         mode: { type: String, optional: true },
         originalPaymentId: { type: String, optional: true },
+        posConfigId: { type: Number, optional: true },
+        orderUuid: { type: String, optional: true },
+        paymentMethodId: { type: Number, optional: true },
+        resumeState: { type: Object, optional: true },
     };
 
     static defaultProps = {
@@ -62,6 +116,20 @@ export class HoneiValidationPopup extends Component {
         this._t = _t;
         this._polling = false;
         this._closed = false;
+        this._resumeConsumed = false;
+
+        useExternalListener(
+            window,
+            "keydown",
+            (ev) => {
+                if (ev.key === "Escape") {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    ev.stopImmediatePropagation();
+                }
+            },
+            { capture: true }
+        );
 
         onMounted(() => {
             if (activeHoneiValidationPopup && activeHoneiValidationPopup !== this) {
@@ -74,7 +142,6 @@ export class HoneiValidationPopup extends Component {
                 return;
             }
             activeHoneiValidationPopup = this;
-            this._bindDismissHandler();
             this.confirm();
         });
 
@@ -82,7 +149,6 @@ export class HoneiValidationPopup extends Component {
             if (activeHoneiValidationPopup === this) {
                 activeHoneiValidationPopup = null;
             }
-            this._clearDismissHandler();
         });
     }
 
@@ -90,24 +156,31 @@ export class HoneiValidationPopup extends Component {
         return this.props.mode === "refund";
     }
 
-    isProcessing() {
-        return this.state.status === "loading" || this.state.status === "processing";
-    }
-
-    _bindDismissHandler() {
-        if (!this.env.dialogData) {
+    _persistInFlight({ transactionId, statusUrl, abortUrl }) {
+        if (this.props.posConfigId == null || !this.props.orderUuid) {
             return;
         }
-        this.env.dialogData.dismiss = async () => {
-            if (this.isProcessing()) {
-                await this.cancel();
-            }
-        };
+        saveInFlightHoneiPayment(this.props.posConfigId, {
+            startedAt: Date.now(),
+            mode: this.props.mode,
+            transactionId,
+            statusUrl,
+            abortUrl,
+            terminal: this.props.terminal,
+            venueApiKey: this.props.venueApiKey || "",
+            integrationSecret: this.props.integrationSecret || "",
+            apiBaseUrl: this.props.apiBaseUrl || "",
+            amount: this.props.amount,
+            currency: this.props.currency,
+            originalPaymentId: this.props.originalPaymentId || "",
+            orderUuid: this.props.orderUuid,
+            paymentMethodId: this.props.paymentMethodId ?? null,
+        });
     }
 
-    _clearDismissHandler() {
-        if (this.env.dialogData?.dismiss) {
-            delete this.env.dialogData.dismiss;
+    _clearInFlight() {
+        if (this.props.posConfigId != null) {
+            clearInFlightHoneiPayment(this.props.posConfigId);
         }
     }
 
@@ -225,18 +298,30 @@ export class HoneiValidationPopup extends Component {
                     headers: this._getHeaders(),
                 });
             } catch (e) {
-                honeiLogger.error("poll_network_error", {
+                honeiLogger.warn("poll_network_error_retrying", {
                     iteration,
                     duration_ms: Math.round(performance.now() - reqStart),
                     elapsed_ms: Math.round(performance.now() - pollStart),
                     message: e?.message || String(e),
                 });
-                throw e;
+                await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+                continue;
             }
 
             const reqDuration = Math.round(performance.now() - reqStart);
 
             if (!response.ok) {
+                const isTransient = response.status >= 500 || response.status === 429;
+                if (isTransient) {
+                    honeiLogger.warn("poll_http_error_retrying", {
+                        iteration,
+                        status: response.status,
+                        duration_ms: reqDuration,
+                        elapsed_ms: Math.round(performance.now() - pollStart),
+                    });
+                    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+                    continue;
+                }
                 const error = await response.json().catch(() => ({}));
                 honeiLogger.error("poll_http_error", {
                     iteration,
@@ -304,20 +389,41 @@ export class HoneiValidationPopup extends Component {
         });
 
         try {
-            this.state.status = "loading";
             this.state.errorMessage = "";
             this.state.cancelling = false;
             this.state.abortUrl = null;
-            this._bindDismissHandler();
+
+            const useResume = this.props.resumeState && !this._resumeConsumed;
+            this._resumeConsumed = true;
 
             if (this.isRefund) {
-                this.state.statusMessage = this._t("Iniciando devolución...");
-                const initResult = await this._initRefund(
-                    terminalId,
-                    this.props.originalPaymentId,
-                    amount
-                );
-                this.state.abortUrl = initResult.refundAbortUrl || null;
+                let initResult;
+                if (useResume) {
+                    initResult = {
+                        refundId: this.props.resumeState.transactionId,
+                        refundStatusUrl: this.props.resumeState.statusUrl,
+                        refundAbortUrl: this.props.resumeState.abortUrl,
+                    };
+                    this.state.abortUrl = initResult.refundAbortUrl || null;
+                    honeiLogger.info("popup_resumed", {
+                        mode: "refund",
+                        refundId: initResult.refundId,
+                    });
+                } else {
+                    this.state.status = "loading";
+                    this.state.statusMessage = this._t("Iniciando devolución...");
+                    initResult = await this._initRefund(
+                        terminalId,
+                        this.props.originalPaymentId,
+                        amount
+                    );
+                    this.state.abortUrl = initResult.refundAbortUrl || null;
+                    this._persistInFlight({
+                        transactionId: initResult.refundId,
+                        statusUrl: initResult.refundStatusUrl,
+                        abortUrl: initResult.refundAbortUrl || null,
+                    });
+                }
 
                 this.state.status = "processing";
                 this.state.statusMessage = this._t(
@@ -353,16 +459,35 @@ export class HoneiValidationPopup extends Component {
                     this.state.errorMessage =
                         messages[statusResult.status] ||
                         this._t("Error desconocido en la devolución.");
-                    this._clearDismissHandler();
                     honeiLogger.warn("refund_not_completed", {
                         status: statusResult.status,
                         total_ms: Math.round(performance.now() - this._confirmStart),
                     });
                 }
             } else {
-                this.state.statusMessage = this._t("Iniciando pago...");
-                const initResult = await this._initPayment(terminalId, amount, currency);
-                this.state.abortUrl = initResult.paymentAbortUrl || null;
+                let initResult;
+                if (useResume) {
+                    initResult = {
+                        paymentId: this.props.resumeState.transactionId,
+                        paymentStatusUrl: this.props.resumeState.statusUrl,
+                        paymentAbortUrl: this.props.resumeState.abortUrl,
+                    };
+                    this.state.abortUrl = initResult.paymentAbortUrl || null;
+                    honeiLogger.info("popup_resumed", {
+                        mode: "payment",
+                        paymentId: initResult.paymentId,
+                    });
+                } else {
+                    this.state.status = "loading";
+                    this.state.statusMessage = this._t("Iniciando pago...");
+                    initResult = await this._initPayment(terminalId, amount, currency);
+                    this.state.abortUrl = initResult.paymentAbortUrl || null;
+                    this._persistInFlight({
+                        transactionId: initResult.paymentId,
+                        statusUrl: initResult.paymentStatusUrl,
+                        abortUrl: initResult.paymentAbortUrl || null,
+                    });
+                }
 
                 this.state.status = "processing";
                 this.state.statusMessage = this._t(
@@ -402,7 +527,6 @@ export class HoneiValidationPopup extends Component {
                     this.state.errorMessage =
                         messages[statusResult.status] ||
                         this._t("Error desconocido en el pago.");
-                    this._clearDismissHandler();
                     honeiLogger.warn("payment_not_completed", {
                         status: statusResult.status,
                         total_ms: Math.round(performance.now() - this._confirmStart),
@@ -414,7 +538,6 @@ export class HoneiValidationPopup extends Component {
                 this.state.status = "error";
                 this.state.errorMessage =
                     error.message || this._t("Error de conexión con el servidor honei.");
-                this._clearDismissHandler();
             }
             honeiLogger.error("popup_confirm_exception", {
                 mode: this.props.mode,
@@ -455,7 +578,7 @@ export class HoneiValidationPopup extends Component {
         }
         this._closed = true;
         this._polling = false;
-        this._clearDismissHandler();
+        this._clearInFlight();
         this.props.close();
     }
 
@@ -464,6 +587,10 @@ export class HoneiValidationPopup extends Component {
             this.state.abortUrl &&
             (this.state.status === "processing" || this.state.status === "loading")
         ) {
+            if (this.state.cancelling) {
+                honeiLogger.debug("cancel_ignored_already_cancelling");
+                return;
+            }
             this.state.cancelling = true;
             this.state.statusMessage = this.isRefund
                 ? this._t("Cancelando devolución...")

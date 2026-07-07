@@ -1,13 +1,10 @@
 .honei-no-close .btn-close,
-.honei-no-close.modal-content .btn-close,
-.honei-no-close .modal-header .btn-close,
-.modal-dialog:has(.honei-no-close) .btn-close {
+.honei-no-close .oi-arrow-left,
+.honei-no-close button[aria-label="Close"] {
     display: none !important;
 }
 
 .honei-no-close .modal-body,
-.honei-no-close .o_dialog_container,
-.honei-no-close .modal-content,
 .honei-no-close {
     overflow: hidden !important;
 }

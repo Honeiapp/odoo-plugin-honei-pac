@@ -1,6 +1,6 @@
 /** @odoo-module **/
 
-import { onWillUnmount } from "@odoo/owl";
+import { onMounted, onWillUnmount } from "@odoo/owl";
 import { PaymentScreen } from "@point_of_sale/app/screens/payment_screen/payment_screen";
 import { patch } from "@web/core/utils/patch";
 import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
@@ -12,12 +12,67 @@ patch(PaymentScreen.prototype, {
     setup() {
         super.setup(...arguments);
         this._honeiDisposed = false;
+        onMounted(() => {
+            this._maybeResumeHoneiPayment();
+        });
         onWillUnmount(() => {
             this._honeiDisposed = true;
             if (this.pos?.honeiPaymentInProgress && !getActiveHoneiValidationPopup()) {
                 honeiLogger.warn("payment_screen_unmount_releasing_lock");
                 this.pos.releaseHoneiPayment();
             }
+        });
+    },
+
+    _maybeResumeHoneiPayment() {
+        const pending = this.pos?.pendingHoneiResume;
+        if (!pending) {
+            return;
+        }
+        this.pos.pendingHoneiResume = null;
+
+        const order = this.currentOrder;
+        if (!order || order.uuid !== pending.orderUuid) {
+            honeiLogger.warn("resume_order_mismatch", {
+                expected: pending.orderUuid,
+                actual: order?.uuid || null,
+            });
+            this.pos.releaseHoneiPayment();
+            return;
+        }
+        const paymentMethod = this.pos.models["pos.payment.method"]?.get(
+            pending.paymentMethodId
+        );
+        if (!paymentMethod) {
+            honeiLogger.warn("resume_payment_method_missing", {
+                paymentMethodId: pending.paymentMethodId,
+            });
+            this.pos.releaseHoneiPayment();
+            return;
+        }
+        if (getActiveHoneiValidationPopup()) {
+            honeiLogger.warn("resume_skipped_popup_already_active");
+            return;
+        }
+
+        honeiLogger.info("resume_open_popup", {
+            mode: pending.mode,
+            transactionId: pending.transactionId,
+            orderUuid: pending.orderUuid,
+        });
+        this._openHoneiPopup({
+            paymentMethod,
+            terminal: pending.terminal,
+            amount: pending.amount,
+            currency: pending.currency,
+            apiBaseUrl: pending.apiBaseUrl,
+            mode: pending.mode,
+            originalPaymentId: pending.originalPaymentId || null,
+            resumeState: {
+                transactionId: pending.transactionId,
+                statusUrl: pending.statusUrl,
+                abortUrl: pending.abortUrl || null,
+            },
         });
     },
 
@@ -50,13 +105,15 @@ patch(PaymentScreen.prototype, {
 
     async _getOriginalHoneiPaymentIdRpc() {
         const order = this.currentOrder;
-        if (!order.id) {
+        const refundedLines = (order.lines || []).filter((l) => l.refunded_orderline_id);
+        const originalOrderId = refundedLines[0]?.refunded_orderline_id?.order_id?.id;
+        if (!Number.isInteger(originalOrderId)) {
             return null;
         }
         const result = await this.pos.data.call(
             "pos.order",
             "get_honei_refund_data",
-            [order.id]
+            [originalOrderId]
         );
         return result ? result.original_payment_id : null;
     },
@@ -175,6 +232,30 @@ patch(PaymentScreen.prototype, {
             ? "https://staging.api.honei.app/v1"
             : "https://api.honei.app/v1";
 
+        return this._openHoneiPopup({
+            paymentMethod,
+            terminal: selectedTerminal,
+            amount,
+            currency,
+            apiBaseUrl,
+            mode: isRefund ? "refund" : "payment",
+            originalPaymentId,
+            flowStart,
+        });
+    },
+
+    _openHoneiPopup({
+        paymentMethod,
+        terminal,
+        amount,
+        currency,
+        apiBaseUrl,
+        mode,
+        originalPaymentId,
+        flowStart = performance.now(),
+        resumeState = null,
+    }) {
+        const isRefund = mode === "refund";
         return new Promise((resolve) => {
             let settled = false;
             const settle = (value) => {
@@ -185,118 +266,119 @@ patch(PaymentScreen.prototype, {
                 }
             };
 
-            this.dialog.add(
-                HoneiValidationPopup,
-                {
-                    title: isRefund
-                        ? _t("Procesando devolución honei")
-                        : _t("Procesando pago honei"),
-                    terminal: selectedTerminal,
-                    venueApiKey: paymentMethod.venue_api_key || "",
-                    integrationSecret: paymentMethod.odoo_integration_secret || "",
-                    apiBaseUrl: apiBaseUrl,
-                    amount: amount,
-                    currency: currency,
-                    mode: isRefund ? "refund" : "payment",
-                    originalPaymentId: originalPaymentId || "",
-                    onConfirm: async (selectedHoneiConfig, apiResponse) => {
-                        honeiLogger.info("popup_on_confirm", {
+            const popupProps = {
+                title: isRefund
+                    ? _t("Procesando devolución honei")
+                    : _t("Procesando pago honei"),
+                terminal: terminal,
+                venueApiKey: paymentMethod.venue_api_key || "",
+                integrationSecret: paymentMethod.odoo_integration_secret || "",
+                apiBaseUrl: apiBaseUrl,
+                amount: amount,
+                currency: currency,
+                mode: mode,
+                originalPaymentId: originalPaymentId || "",
+                posConfigId: this.pos.config.id,
+                orderUuid: this.currentOrder?.uuid || "",
+                paymentMethodId: paymentMethod.id,
+                onConfirm: async (selectedHoneiConfig, apiResponse) => {
+                    honeiLogger.info("popup_on_confirm", {
+                        isRefund,
+                        status: apiResponse?.status || null,
+                        transactionId: apiResponse?.transactionId || null,
+                        resumed: !!resumeState,
+                    });
+                    if (!apiResponse || apiResponse.status !== "done") {
+                        honeiLogger.error("popup_on_confirm_not_done", {
                             isRefund,
-                            status: apiResponse?.status || null,
-                            transactionId: apiResponse?.transactionId || null,
+                            apiResponse,
                         });
-                        if (!apiResponse || apiResponse.status !== "done") {
-                            honeiLogger.error("popup_on_confirm_not_done", {
-                                isRefund,
-                                apiResponse,
-                            });
-                            this.dialog.add(AlertDialog, {
-                                title: isRefund
-                                    ? _t("Error de devolución")
-                                    : _t("Error de pago"),
-                                body: isRefund
-                                    ? _t(
-                                          "La devolución no se ha podido procesar correctamente."
-                                      )
-                                    : _t(
-                                          "El pago no se ha podido procesar correctamente."
-                                      ),
-                            });
-                            settle(false);
-                            return;
-                        }
+                        this.dialog.add(AlertDialog, {
+                            title: isRefund
+                                ? _t("Error de devolución")
+                                : _t("Error de pago"),
+                            body: isRefund
+                                ? _t(
+                                      "La devolución no se ha podido procesar correctamente."
+                                  )
+                                : _t(
+                                      "El pago no se ha podido procesar correctamente."
+                                  ),
+                        });
+                        settle(false);
+                        return;
+                    }
 
-                        const result = this.currentOrder.addPaymentline(paymentMethod);
-                        if (result.status) {
-                            const newLine = this.paymentLines.at(-1);
-                            if (newLine) {
-                                newLine.transaction_id = apiResponse.transactionId;
-                                newLine.payment_status = apiResponse.status;
-                                newLine.payment_ref_no = selectedHoneiConfig.code;
-                                honeiLogger.info("payment_line_added", {
+                    const result = this.currentOrder.addPaymentline(paymentMethod);
+                    if (result.status) {
+                        const newLine = this.paymentLines.at(-1);
+                        if (newLine) {
+                            newLine.transaction_id = apiResponse.transactionId;
+                            newLine.payment_status = apiResponse.status;
+                            newLine.payment_ref_no = selectedHoneiConfig.code;
+                            honeiLogger.info("payment_line_added", {
+                                isRefund,
+                                transactionId: apiResponse.transactionId,
+                                terminalCode: selectedHoneiConfig.code,
+                            });
+                            settle(true);
+                            const saveStart = performance.now();
+                            try {
+                                await this.validateOrder(false);
+                                honeiLogger.info("order_validated_ok", {
                                     isRefund,
-                                    transactionId: apiResponse.transactionId,
-                                    terminalCode: selectedHoneiConfig.code,
-                                });
-                                settle(true);
-                                const saveStart = performance.now();
-                                try {
-                                    await this.validateOrder(false);
-                                    honeiLogger.info("order_validated_ok", {
-                                        isRefund,
-                                        save_ms: Math.round(performance.now() - saveStart),
-                                        total_flow_ms: Math.round(
-                                            performance.now() - flowStart
-                                        ),
-                                    });
-                                } catch (e) {
-                                    honeiLogger.error("order_validate_exception", {
-                                        isRefund,
-                                        save_ms: Math.round(performance.now() - saveStart),
-                                        message: e?.message || String(e),
-                                        stack: e?.stack || null,
-                                    });
-                                    throw e;
-                                }
-                            } else {
-                                honeiLogger.error("payment_line_missing_after_add");
-                                this.dialog.add(AlertDialog, {
-                                    title: _t("Error de línea de pago"),
-                                    body: _t(
-                                        "No se ha podido obtener la línea de pago recién creada."
+                                    save_ms: Math.round(performance.now() - saveStart),
+                                    total_flow_ms: Math.round(
+                                        performance.now() - flowStart
                                     ),
                                 });
-                                settle(false);
+                            } catch (e) {
+                                honeiLogger.error("order_validate_exception", {
+                                    isRefund,
+                                    save_ms: Math.round(performance.now() - saveStart),
+                                    message: e?.message || String(e),
+                                    stack: e?.stack || null,
+                                });
+                                throw e;
                             }
                         } else {
-                            honeiLogger.error("add_payment_line_failed", {
-                                isRefund,
-                                data: result.data || null,
-                            });
+                            honeiLogger.error("payment_line_missing_after_add");
                             this.dialog.add(AlertDialog, {
-                                title: isRefund
-                                    ? _t("Error al añadir devolución")
-                                    : _t("Error al añadir pago"),
-                                body: result.data,
+                                title: _t("Error de línea de pago"),
+                                body: _t(
+                                    "No se ha podido obtener la línea de pago recién creada."
+                                ),
                             });
                             settle(false);
                         }
-                    },
-                    onCancel: () => {
-                        honeiLogger.info("popup_on_cancel", { isRefund });
+                    } else {
+                        honeiLogger.error("add_payment_line_failed", {
+                            isRefund,
+                            data: result.data || null,
+                        });
+                        this.dialog.add(AlertDialog, {
+                            title: isRefund
+                                ? _t("Error al añadir devolución")
+                                : _t("Error al añadir pago"),
+                            body: result.data,
+                        });
                         settle(false);
-                    },
+                    }
                 },
-                {
-                    onClose: async () => {
-                        const popup = getActiveHoneiValidationPopup();
-                        if (popup?.isProcessing()) {
-                            await popup.cancel();
-                        }
-                        settle(false);
-                    },
-                }
-            );
+                onCancel: () => {
+                    honeiLogger.info("popup_on_cancel", { isRefund, resumed: !!resumeState });
+                    settle(false);
+                },
+            };
+            if (resumeState) {
+                popupProps.resumeState = resumeState;
+            }
+
+            this.dialog.add(HoneiValidationPopup, popupProps, {
+                onClose: () => {
+                    settle(false);
+                },
+            });
         });
     },
 });
