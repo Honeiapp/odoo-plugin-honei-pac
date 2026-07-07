@@ -4,7 +4,7 @@
         <Dialog title="props.title || _t('Procesando pago honei')"
                 size="'md'"
                 footer="footer"
-                contentClass="state.status === 'processing' || state.status === 'loading' ? 'honei-no-close' : ''">
+                contentClass="'honei-no-close'">
             <main class="body">
                 <p class="text-muted mb-3" t-if="props.terminal">
                     <t t-esc="_t('Terminal:')"/>
