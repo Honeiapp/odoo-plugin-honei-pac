@@ -99,6 +99,20 @@ Sustituye `db` por el nombre de tu base de datos si es distinto.
 
 Los cambios en terminales (añadir, editar o borrar) se **sincronizan al instante** cada vez que el cajero pulsa el método de pago honei; no hace falta cerrar y reabrir la sesión del POS.
 
+### 3.1 Configurar el terminal por defecto (varios terminales)
+
+Si un TPV tiene **más de un terminal Honei**, el cajero debe elegir cuál usar por defecto antes de poder cobrar:
+
+1. En la pantalla del POS, abre el menú **☰** (arriba a la derecha).
+2. Pulsa **honei Terminal**.
+3. Selecciona el terminal a usar (aparece marcado con un ✓).
+
+A partir de ese momento, al pulsar el método de pago honei el cobro se inicia directamente en ese terminal, sin pantalla de selección. Puedes cambiar el terminal por defecto repitiendo estos pasos en cualquier momento; la elección se guarda por TPV y persiste aunque recargues la página.
+
+Si hay un único terminal configurado, se usa automáticamente y aparece siempre marcado como seleccionado en el menú (no hace falta elegirlo).
+
+Si se intenta cobrar sin haber elegido terminal por defecto (con varios terminales disponibles), aparece un aviso: *"Selecciona un terminal por defecto"*, indicando estos mismos pasos.
+
 ---
 
 ## 4. Uso en el Punto de venta
@@ -123,6 +137,18 @@ Mientras el datáfono está procesando el cobro:
 - Pulsa **Atrás** en el TPV.
 
 En ambos casos se envía la petición de aborto a la API de Honei y se libera el datáfono, para que el cajero pueda seguir operando sin reiniciar la sesión.
+
+### Descargar los logs
+
+El plugin guarda un registro interno de la actividad de los pagos honei (sincronización de terminales, inicio/fin de cobro, errores, etc.), útil para diagnosticar incidencias.
+
+Para descargarlo:
+
+1. En la pantalla del POS, abre el menú **☰**.
+2. Pulsa **honei Terminal**.
+3. Pulsa **Descargar logs**.
+
+Se descarga un archivo de texto `honei-logs-<fecha>.txt` con una línea por evento (fecha, nivel y datos). Compártelo con soporte de Honei si necesitas ayuda con una incidencia.
 
 ---
 
