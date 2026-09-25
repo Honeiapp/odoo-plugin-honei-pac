@@ -23,8 +23,8 @@ class HoneiTerminal(models.Model):
     terminal_id = fields.Char("Terminal ID", required=True)
     pos_config_id = fields.Many2one("pos.config", "POS Config", required=True)
 
-    # Integración local (device-bridge). El secreto y el contador nunca se
-    # envían al POS: las peticiones al terminal las firma el servidor.
+    # Local integration: requests are signed server-side, so the secret and
+    # counter are never loaded into the POS.
     local_host = fields.Char(
         "IP local",
         help="IP del terminal en la red local (p. ej. 192.168.1.50). Puerto 8743 por defecto; "
@@ -44,8 +44,7 @@ class HoneiTerminal(models.Model):
         help="SHA-256 del certificado HTTPS del terminal, para validarlo sin CA.",
     )
     local_key_issued_at = fields.Datetime("Clave emitida", readonly=True, copy=False)
-    # Último counter enviado al terminal (epoch ms o superior). float8 para no
-    # desbordar el int4 de fields.Integer.
+    # Last counter sent (epoch ms or above); Float because Integer is int4.
     local_counter = fields.Float(
         "Último counter", groups="base.group_system", copy=False, readonly=True
     )
@@ -71,10 +70,6 @@ class HoneiTerminal(models.Model):
     def _load_pos_data_domain(self, data, config):
         return [("pos_config_id", "=", config.id)]
 
-    # ------------------------------------------------------------------
-    # Vinculación (una vez por terminal, requiere Internet)
-    # ------------------------------------------------------------------
-
     def _get_cloud_payment_method(self):
         self.ensure_one()
         methods = self.pos_config_id.payment_method_ids.filtered(
@@ -91,10 +86,9 @@ class HoneiTerminal(models.Model):
         return methods[0]
 
     def action_honei_local_provision(self):
-        """Pide a la API cloud de honei la clave de firma y la huella del terminal.
+        """Fetch the terminal's signing key and certificate fingerprint from the cloud API.
 
-        Cada llamada ROTA la clave: el terminal deja de aceptar la anterior al
-        momento, así que solo debe hacerse desde un único Odoo por terminal.
+        Every call rotates the key: the terminal rejects the previous one immediately.
         """
         self.ensure_one()
         method = self._get_cloud_payment_method().sudo()
@@ -134,8 +128,7 @@ class HoneiTerminal(models.Model):
         data = response.json()
         issued_at = data.get("issuedAt")
         fingerprint = device_bridge.normalize_fingerprint(data.get("certificateFingerprint"))
-        # La clave es del terminal físico: cualquier otra fila (otro TPV) que
-        # apunte al mismo Terminal ID queda invalidada si no se actualiza.
+        # The key belongs to the physical terminal: update every POS using it.
         same_terminal = self.sudo().search([("terminal_id", "=", self.terminal_id)])
         same_terminal.write(
             {
@@ -161,13 +154,12 @@ class HoneiTerminal(models.Model):
         return self._notify(_("Terminal %s vinculado para integración local.", self.name), "success")
 
     def action_honei_local_test(self):
-        """Comprueba conexión, certificado y firma contra el terminal."""
+        """Check connection, certificate and signature against the terminal."""
         self.ensure_one()
         result = self.honei_local_status("odoo-connection-test")
         if result.get("error"):
             return self._notify(self._local_error_message(result["error"]), "danger", sticky=True)
-        # 404 not_found es la respuesta esperada para un ref inexistente: la
-        # petición llegó, se validó la firma y el counter.
+        # 404 for an unknown ref means the signed request was accepted.
         if result["http_status"] in (200, 404):
             return self._notify(_("Conexión local con %s correcta.", self.name), "success")
         return self._notify(
@@ -198,6 +190,7 @@ class HoneiTerminal(models.Model):
             "not_configured": _("Falta la IP local o la vinculación del terminal."),
             "missing_fingerprint": _("Falta la huella del certificado del terminal."),
             "unreachable": _("No se puede conectar con el terminal en la red local."),
+            "no_response": _("El terminal no ha respondido."),
             "tls_error": _(
                 "El certificado del terminal no coincide con la huella guardada. "
                 "Vuelve a vincular el terminal."
@@ -207,20 +200,15 @@ class HoneiTerminal(models.Model):
         }
         return messages.get(error, error)
 
-    # ------------------------------------------------------------------
-    # Operaciones del POS contra el terminal
-    # ------------------------------------------------------------------
-
     def _local_call(self, method, path, fields_=None):
-        """Firma y envía una petición al terminal.
+        """Sign and send a request to the terminal.
 
-        El counter se reserva y la petición se envía con la fila del terminal
-        bloqueada en una transacción propia: así dos workers/cajas no pueden
-        adelantarse entre sí (el terminal rechaza cualquier counter que no sea
-        mayor que el último que vio) y el counter queda guardado aunque la
-        transacción de la petición RPC haga rollback.
+        The counter is reserved and the request sent while the terminal row is
+        locked in its own transaction, so concurrent workers can't overtake each
+        other (the terminal rejects any counter not above the last one it saw)
+        and the counter survives a rollback of the RPC transaction.
 
-        Devuelve ``{"http_status", "data"}`` o ``{"error"}`` si no hubo respuesta.
+        Returns ``{"http_status", "data"}``, or ``{"error"}`` when there was no response.
         """
         self.ensure_one()
         terminal = self.sudo()
@@ -240,8 +228,7 @@ class HoneiTerminal(models.Model):
                 [self.id],
             )
             last = int(cr.fetchone()[0] or 0)
-            # Basado en epoch ms: sigue siendo mayor que lo último que vio el
-            # terminal aunque se restaure una copia de la base de datos.
+            # Epoch-ms based so it stays ahead even after a database restore.
             counter = max(last + 1, int(time.time() * 1000))
             cr.execute(
                 "UPDATE pos_config_honei_terminal SET local_counter = %s WHERE id = %s",
@@ -277,7 +264,7 @@ class HoneiTerminal(models.Model):
         )
 
     def honei_local_abort(self, ref):
-        """Solo lo aceptan los modelos que pueden abortar (A77, A920 Pro)."""
+        """Only supported by A77 and A920 Pro terminals."""
         self._check_ref(ref)
         return self._local_call("POST", f"/payments/{ref}/abort")
 

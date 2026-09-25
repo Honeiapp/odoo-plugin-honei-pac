@@ -1,18 +1,12 @@
-"""Cliente de la Local API (device-bridge) del honei Terminal.
+"""Client for the honei Terminal Local API (device-bridge).
 
-Contrato (ver https://integration.terminal.honei.app/api-reference/pay-at-counter-and-apk/local-api):
+https://integration.terminal.honei.app/api-reference/pay-at-counter-and-apk/local-api
 
-- Base URL: ``https://<ip-del-terminal>:8743/device-bridge``, certificado autofirmado
-  que se valida fijando su huella SHA-256 (no hay CA).
-- Cada petición (salvo ``health``) lleva ``counter`` (estrictamente creciente) y
-  ``hmac`` (HMAC-SHA256 de todos los campos salvo ``hmac``, ordenados por nombre y
-  unidos como ``k=v`` con ``&``). El secreto se usa tal cual como bytes UTF-8, sin
-  decodificar el hex.
-- Las respuestas vienen firmadas del mismo modo y se verifican aquí.
-
-Los valores se serializan igual que el ``toString()`` de Dart que usa el terminal
-para canonicalizar: ``null``/``true``/``false`` y los ``double`` siempre con parte
-decimal (``12.0``), igual que ``repr`` de un ``float`` en Python.
+Requests carry a strictly increasing ``counter`` and an ``hmac`` (HMAC-SHA256
+over every other field, sorted by name and joined as ``k=v`` with ``&``, keyed
+with the secret's raw UTF-8 bytes). Values are stringified like Dart's
+``toString()`` on the terminal: ``null``/``true``/``false`` and doubles always
+with a decimal part, which is what ``repr`` gives for a Python float.
 """
 
 import hashlib
@@ -30,7 +24,7 @@ READ_TIMEOUT = 10
 
 
 class DeviceBridgeError(Exception):
-    """Error de transporte (terminal inalcanzable, TLS, huella incorrecta...)."""
+    """No response from the terminal (unreachable, TLS, fingerprint mismatch...)."""
 
 
 def _canonical_value(value):
@@ -82,8 +76,7 @@ def _pool(fingerprint):
     fingerprint = normalize_fingerprint(fingerprint)
     if not fingerprint:
         raise DeviceBridgeError("missing_fingerprint")
-    # La huella fijada sustituye a la validación por CA y de hostname: urllib3
-    # compara el SHA-256 del certificado presentado y aborta si no coincide.
+    # Self-signed certificate: the pinned fingerprint replaces CA and hostname checks.
     return urllib3.PoolManager(
         cert_reqs="CERT_NONE",
         assert_fingerprint=fingerprint,
@@ -93,11 +86,11 @@ def _pool(fingerprint):
 
 
 def request(host, fingerprint, method, path, fields=None, secret=None):
-    """Hace una petición al terminal y devuelve ``(http_status, body)``.
+    """Send a request to the terminal and return ``(http_status, body)``.
 
-    Si se pasa ``secret``, firma ``fields`` (que ya debe incluir ``counter``) y
-    verifica la firma de las respuestas 2xx. En GET los campos van en la query.
-    Lanza :class:`DeviceBridgeError` si no se llega a obtener respuesta.
+    With ``secret``, signs ``fields`` (which must already include ``counter``)
+    and verifies the signature of 2xx responses. GET sends fields as query
+    params. Raises :class:`DeviceBridgeError` when no response is obtained.
     """
     url = base_url(host) + path
     payload = dict(fields or {})
@@ -119,10 +112,17 @@ def request(host, fingerprint, method, path, fields=None, secret=None):
         raise
     except urllib3.exceptions.SSLError as e:
         _logger.warning("honei device-bridge TLS error on %s: %s", url, e)
-        raise DeviceBridgeError("tls_error") from e
-    except urllib3.exceptions.HTTPError as e:
+        if "Fingerprints did not match" in str(e):
+            raise DeviceBridgeError("tls_error") from e
+        # Handshake failed: the request was never sent.
+        raise DeviceBridgeError("unreachable") from e
+    except (urllib3.exceptions.NewConnectionError, urllib3.exceptions.ConnectTimeoutError) as e:
         _logger.warning("honei device-bridge unreachable on %s: %s", url, e)
         raise DeviceBridgeError("unreachable") from e
+    except urllib3.exceptions.HTTPError as e:
+        # Connected but got no response: the terminal may or may not have received it.
+        _logger.warning("honei device-bridge no response from %s: %s", url, e)
+        raise DeviceBridgeError("no_response") from e
 
     try:
         body = json.loads(response.data.decode("utf-8")) if response.data else {}
@@ -137,3 +137,4 @@ def request(host, fingerprint, method, path, fields=None, secret=None):
 
     body.pop("hmac", None)
     return response.status, body
+

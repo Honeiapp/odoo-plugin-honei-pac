@@ -24,8 +24,8 @@ class PosPaymentMethod(models.Model):
     )
     honei_integration_mode = fields.Selection(
         [
-            ("cloud", "Cloud (API de honei)"),
-            ("local", "Local (misma red)"),
+            ("cloud", "Cloud"),
+            ("local", "Local"),
         ],
         string="Integración",
         default="cloud",

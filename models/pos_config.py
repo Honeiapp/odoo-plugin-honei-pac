@@ -20,7 +20,7 @@ class PosConfig(models.Model):
             )
 
     def sync_honei_terminals_pos_data(self, local_terminal_ids=None):
-        """Devuelve terminales actuales y los IDs locales que ya no existen."""
+        """Return the current terminals and the local IDs that no longer exist."""
         self.ensure_one()
         terminal_model = self.env["pos.config.honei_terminal"]
         terminals = terminal_model.search([("pos_config_id", "=", self.id)])
