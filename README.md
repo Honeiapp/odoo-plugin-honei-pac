@@ -73,6 +73,9 @@ Sustituye `db` por el nombre de tu base de datos si es distinto.
 3. Rellena:
    - **Nombre**: p. ej. "Tarjeta Honei" o "Honei Terminal".
    - Marca **Honei Payment**.
+   - **Integración**:
+     - **Cloud (API de honei)** (por defecto) → el cobro pasa por la API de honei; el navegador del TPV necesita Internet.
+     - **Local (misma red)** → Odoo habla directamente con el terminal por la red local ([Local API](https://integration.terminal.honei.app/api-reference/pay-at-counter-and-apk/local-api)), sin pasar por honei. Ver apartado 3.2.
    - **Venue API Key**: clave de API del establecimiento (se envía en el header `venue-api-key`).
    - **Entorno de pruebas (Staging)**:
      - Marcado → se usa `https://staging.api.honei.app/v1`.
@@ -114,6 +117,22 @@ Si hay un único terminal configurado, se usa automáticamente y aparece siempre
 Si se intenta cobrar sin haber elegido terminal por defecto (con varios terminales disponibles), aparece un aviso: *"Selecciona un terminal por defecto"*, indicando estos mismos pasos.
 
 ---
+
+### 3.2 Integración local (misma red)
+
+Con **Integración = Local** en el método de pago, las peticiones al terminal las hace el **servidor Odoo**, que firma cada una (HMAC) y valida el certificado del terminal por su huella. El secreto nunca llega al navegador.
+
+Requisitos: el servidor Odoo debe estar **en la misma red** que los terminales (Odoo instalado en el local). Con Odoo en la nube no es posible.
+
+1. Asigna al terminal una IP fija (reserva DHCP en el router).
+2. En **Punto de venta → Configuración → pestaña honei Terminal**, rellena la columna **IP local** de cada terminal (p. ej. `192.168.1.50`; puerto 8743 por defecto).
+3. Pulsa **Vincular** (necesita Internet solo en ese momento): Odoo pide a honei la clave de firma y la huella del certificado del terminal y las guarda. Si varios TPV comparten el mismo Terminal ID, la clave se copia a todos.
+   - ⚠️ Volver a vincular **rota la clave**: la anterior deja de funcionar al instante.
+   - Si aparece *"Sin huella"*, enciende el terminal, espera un minuto y vuelve a vincular.
+   - Sin Internet en el local, puedes pegar a mano el **Secreto local** y la **Huella del certificado** (columnas opcionales de la lista).
+4. Pulsa **Probar** para comprobar conexión, certificado y firma.
+
+Diferencias con cloud: la Local API no permite abortar desde Odoo; el pago se cancela desde el propio terminal. Si se pierde la conexión con el terminal durante más de 30 s, el popup deja de esperar y **Reintentar** vuelve a consultar la misma operación (nunca lanza un segundo cobro).
 
 ## 4. Uso en el Punto de venta
 

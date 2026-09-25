@@ -9,10 +9,29 @@
         <sheet position="inside">
           <notebook>
             <page string="honei Terminal">
+              <field name="honei_has_local_mode" invisible="1"/>
+              <div class="text-muted mb-2" invisible="not honei_has_local_mode">
+                Integración local: indica la IP de cada terminal y pulsa <strong>Vincular</strong>
+                (necesita Internet solo esa vez; volver a vincular rota la clave).
+                Este servidor Odoo debe estar en la misma red que los terminales.
+              </div>
               <field name="honei_terminal_ids">
                 <list editable="bottom">
                   <field name="name"/>
                   <field name="terminal_id"/>
+                  <field name="local_host" column_invisible="not parent.honei_has_local_mode"/>
+                  <field name="local_cert_fingerprint" optional="hide"
+                         column_invisible="not parent.honei_has_local_mode"/>
+                  <field name="local_secret" password="True" optional="hide"
+                         column_invisible="not parent.honei_has_local_mode"/>
+                  <field name="local_key_issued_at" optional="hide"
+                         column_invisible="not parent.honei_has_local_mode"/>
+                  <field name="local_status" column_invisible="not parent.honei_has_local_mode"/>
+                  <button name="action_honei_local_provision" type="object" string="Vincular"
+                          icon="fa-link" column_invisible="not parent.honei_has_local_mode"
+                          confirm="Se emitirá una clave nueva para este terminal y la anterior dejará de funcionar. ¿Continuar?"/>
+                  <button name="action_honei_local_test" type="object" string="Probar"
+                          icon="fa-plug" column_invisible="not parent.honei_has_local_mode"/>
                 </list>
               </field>
             </page>

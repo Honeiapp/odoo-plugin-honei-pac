@@ -8,6 +8,7 @@
       <field name="arch" type="xml">
         <field name="split_transactions" position="before">
           <field name="is_honei_payment"/>
+          <field name="honei_integration_mode" widget="radio" invisible="not is_honei_payment"/>
           <field name="venue_api_key" invisible="not is_honei_payment"/>
           <field name="is_staging" invisible="not is_honei_payment"/>
           <field name="odoo_integration_secret" invisible="not is_honei_payment" password="True"/>
