@@ -22,6 +22,18 @@ class PosPaymentMethod(models.Model):
         "Odoo Integration Secret",
         help="Secreto de integración. Se envía en el header Authorization Bearer.",
     )
+    honei_integration_mode = fields.Selection(
+        [
+            ("cloud", "Cloud"),
+            ("local", "Local"),
+        ],
+        string="Integración",
+        default="cloud",
+        required=True,
+        help="Cloud: el cobro pasa por la API de honei (requiere Internet en el TPV). "
+        "Local: Odoo habla directamente con el terminal en la red local, sin pasar por "
+        "honei (requiere IP y vinculación de cada terminal).",
+    )
     honei_auto_next_order = fields.Boolean(
         "Ir a la siguiente venta tras el pago",
         default=False,
@@ -38,5 +50,6 @@ class PosPaymentMethod(models.Model):
             "is_staging",
             "odoo_integration_secret",
             "honei_auto_next_order",
+            "honei_integration_mode",
         ]
         return fields_list

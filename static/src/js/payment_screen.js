@@ -68,10 +68,12 @@ patch(PaymentScreen.prototype, {
             apiBaseUrl: pending.apiBaseUrl,
             mode: pending.mode,
             originalPaymentId: pending.originalPaymentId || null,
+            integrationMode: pending.integrationMode || "cloud",
             resumeState: {
                 transactionId: pending.transactionId,
                 statusUrl: pending.statusUrl,
                 abortUrl: pending.abortUrl || null,
+                localRef: pending.localRef || null,
             },
         });
     },
@@ -133,11 +135,22 @@ patch(PaymentScreen.prototype, {
             paymentMethodId: paymentMethod.id,
             paymentMethodName: paymentMethod.name,
             isStaging: !!paymentMethod.is_staging,
+            integrationMode: paymentMethod.honei_integration_mode || "cloud",
             amount,
             isRefund,
             orderId: order.id || null,
             inProgress: !!this.pos.honeiPaymentInProgress,
         });
+
+        const rounding = this.pos.currency?.rounding || 0.01;
+        if (Math.abs(amount) < rounding / 2) {
+            honeiLogger.warn("payment_button_zero_amount", { amount });
+            this.dialog.add(AlertDialog, {
+                title: _t("Importe no válido"),
+                body: _t("El importe a cobrar debe ser mayor que 0."),
+            });
+            return false;
+        }
 
         if (!this.pos.tryReserveHoneiPayment()) {
             honeiLogger.warn("payment_button_ignored_in_progress");
@@ -241,6 +254,7 @@ patch(PaymentScreen.prototype, {
             mode: isRefund ? "refund" : "payment",
             originalPaymentId,
             flowStart,
+            integrationMode: paymentMethod.honei_integration_mode || "cloud",
         });
     },
 
@@ -254,6 +268,7 @@ patch(PaymentScreen.prototype, {
         originalPaymentId,
         flowStart = performance.now(),
         resumeState = null,
+        integrationMode = "cloud",
     }) {
         const isRefund = mode === "refund";
         return new Promise((resolve) => {
@@ -281,6 +296,7 @@ patch(PaymentScreen.prototype, {
                 posConfigId: this.pos.config.id,
                 orderUuid: this.currentOrder?.uuid || "",
                 paymentMethodId: paymentMethod.id,
+                integrationMode: integrationMode,
                 onConfirm: async (selectedHoneiConfig, apiResponse) => {
                     honeiLogger.info("popup_on_confirm", {
                         isRefund,

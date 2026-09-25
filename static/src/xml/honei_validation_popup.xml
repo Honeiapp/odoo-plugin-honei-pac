@@ -13,6 +13,9 @@
                 <div t-if="state.status === 'loading' || state.status === 'processing'" class="text-center mt-2 py-3">
                     <i class="fa fa-spinner fa-spin fa-2x mb-2 d-block text-primary"/>
                     <p class="mb-0"><t t-esc="state.statusMessage"/></p>
+                    <p class="text-muted small mt-2 mb-0" t-if="isLocal and !state.localAbortable and state.status === 'processing'">
+                        <t t-esc="isRefund ? _t('Para cancelar la devolución, hazlo desde el terminal.') : _t('Para cancelar el pago, hazlo desde el terminal.')"/>
+                    </p>
                 </div>
                 <div t-if="state.status === 'error'" class="mt-3">
                     <div class="alert alert-danger mb-0">
@@ -32,10 +35,16 @@
                     class="btn btn-danger"
                     t-on-click="cancel"
                     t-att-disabled="state.cancelling"
-                    t-if="state.abortUrl &amp;&amp; (state.status === 'processing' || state.status === 'loading')">
+                    t-if="(state.abortUrl &amp;&amp; (state.status === 'processing' || state.status === 'loading')) || (isLocal &amp;&amp; state.localAbortable &amp;&amp; state.status === 'processing')">
                     <i t-if="state.cancelling" class="fa fa-spinner fa-spin me-1"/>
                     <t t-if="state.cancelling" t-esc="_t('Cancelando...')"/>
                     <t t-if="!state.cancelling" t-esc="isRefund ? _t('Cancelar devolución') : _t('Cancelar pago')"/>
+                </button>
+                <button
+                    class="btn btn-secondary"
+                    t-on-click="exitWithoutWaiting"
+                    t-if="state.showExit &amp;&amp; (state.status === 'processing' || state.status === 'loading')">
+                    <t t-esc="_t('Salir')"/>
                 </button>
                 <button
                     class="btn btn-secondary"
