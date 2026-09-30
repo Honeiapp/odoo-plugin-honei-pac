@@ -8,6 +8,9 @@ import {
     clearInFlightHoneiPayment,
 } from "./honei_validation_popup";
 import { honeiLogger } from "./honei_logger";
+import * as deviceBridge from "./device_bridge_client";
+
+const LOCAL_PING_INTERVAL_MS = 20000;
 
 const HONEI_DEFAULT_TERMINAL_KEY_PREFIX = "honei_default_terminal_pos_";
 
@@ -41,7 +44,39 @@ patch(PosStore.prototype, {
         this.honeiDefaultTerminalId = readStoredHoneiTerminalId(this.config.id);
         this.honeiPaymentInProgress = false;
         this.pendingHoneiResume = null;
+        // terminal id -> whether it answered the last ping over the local network.
+        this.honeiLocalReachable = {};
         this._maybeQueueHoneiResume();
+        this._startHoneiLocalPing();
+    },
+
+    /** Keeps the local terminals awake and their reachability up to date. */
+    _startHoneiLocalPing() {
+        const usesLocal = this.models["pos.payment.method"]
+            ?.getAll()
+            .some((m) => m.is_honei_payment && m.honei_integration_mode === "local");
+        if (!usesLocal) {
+            return;
+        }
+        const pingAll = async () => {
+            for (const terminal of this.getHoneiTerminalsForCurrentConfig()) {
+                if (terminal.local_host) {
+                    this.setHoneiLocalReachable(
+                        terminal.id,
+                        await deviceBridge.ping(terminal.local_host)
+                    );
+                }
+            }
+        };
+        pingAll();
+        setInterval(pingAll, LOCAL_PING_INTERVAL_MS);
+    },
+
+    setHoneiLocalReachable(terminalId, reachable) {
+        if (this.honeiLocalReachable[terminalId] !== reachable) {
+            honeiLogger.info("local_reachability_changed", { terminalId, reachable });
+        }
+        this.honeiLocalReachable[terminalId] = reachable;
     },
 
     _maybeQueueHoneiResume() {

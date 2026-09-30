@@ -72,13 +72,12 @@ El plugin puede hablar con el terminal de dos formas. Se elige en el método de 
 
 | | **Cloud** (por defecto) | **Local** |
 |---|---|---|
-| Camino del cobro | Navegador del TPV → API de honei → terminal | Servidor Odoo → terminal, por la red local ([Local API](https://integration.terminal.honei.app/api-reference/pay-at-counter-and-apk/local-api)) |
-| Internet | Necesario en cada cobro | Solo para vincular cada terminal (una vez) |
-| Dónde está Odoo | En cualquier sitio (nube o local) | **En la misma red que los terminales** (Odoo instalado en el establecimiento) |
+| Camino del cobro | Caja → API de honei → terminal | Caja → terminal por la red de la tienda ([Local API](https://integration.terminal.honei.app/api-reference/pay-at-counter-and-apk/local-api)); si el terminal no responde, Caja → API de honei |
+| Dónde está Odoo | En cualquier sitio | En cualquier sitio (nube o tienda). Lo que debe estar en la red del terminal es **la caja** |
 | Configuración del terminal | Terminal ID | Terminal ID + IP local + vinculación |
-| Cancelar desde Odoo | Sí, si el terminal lo permite | Solo en **A77** y **A920 Pro**; en el resto, desde el terminal |
+| Cancelar desde el popup | Sí, si el terminal lo permite | Solo en **A77** y **A920 Pro**; en el resto, desde el terminal |
 
-Con Odoo en la nube (Odoo.sh, odoo.com…) solo es posible **Cloud**.
+En modo **Local** no hay que cambiar de modo si falla la red de la tienda: antes de cada cobro la caja comprueba si el terminal responde por la red local y, si no, cobra por la nube. Cada operación va entera por un solo camino, así que nunca se cobra dos veces.
 
 ---
 
@@ -122,46 +121,49 @@ Con Odoo en la nube (Odoo.sh, odoo.com…) solo es posible **Cloud**.
 
 ### 4.1 Requisitos
 
-- Odoo instalado **en la misma red** que los terminales. El servidor Odoo debe poder abrir conexiones al puerto **8743** de cada terminal.
-- App honei Terminal con Local API (device-bridge), con la sesión iniciada en el terminal.
-- **Venue API Key** y **Odoo Integration Secret** del establecimiento: se usan solo para vincular los terminales.
-- Internet en el servidor Odoo **en el momento de vincular** (o ver 4.5 si no hay).
+- Las **cajas** (el navegador donde se abre el POS) en la **misma red** que los terminales y con acceso al puerto **8743** de cada uno. Odoo puede estar en la nube.
+- App honei Terminal con Local API (device-bridge) y soporte de transporte HTTP, con la sesión iniciada en el terminal.
+- **Venue API Key** y **Odoo Integration Secret** del establecimiento: se usan para vincular los terminales y para cobrar por la nube cuando el terminal no responde por la red local.
+- Chrome o Edge en las cajas.
 
 ### 4.2 IP fija para cada terminal
 
-Asigna a cada terminal una IP fija en la red, normalmente con una **reserva DHCP** en el router. Si la IP cambia, Odoo dejará de encontrar el terminal hasta que actualices la IP en la configuración.
+Asigna a cada terminal una IP fija en la red, normalmente con una **reserva DHCP** en el router. Si la IP cambia, las cajas dejarán de encontrar el terminal (y cobrarán por la nube) hasta que actualices la IP en la configuración.
 
 La IP del terminal se ve en los ajustes de red del propio terminal (Wi-Fi → red conectada).
 
 ### 4.3 Método de pago
 
-Igual que en cloud (apartado 3.1), pero con **Integración: Local**. Rellena igualmente **Venue API Key**, **Entorno de pruebas** y **Odoo Integration Secret**, porque se necesitan para vincular.
+Igual que en cloud (apartado 3.1), pero con **Integración: Local**. Rellena igualmente **Venue API Key**, **Entorno de pruebas** y **Odoo Integration Secret**.
 
 ### 4.4 Terminales: IP y vinculación
 
 1. Ve a **Punto de venta** → **Configuración** → **Punto de venta** y abre el TPV.
 2. En la pestaña **honei Terminal**, para cada terminal rellena **Nombre**, **Terminal ID** e **IP local** (p. ej. `192.168.1.50`; puerto 8743 por defecto, o `192.168.1.50:puerto`).
 3. Guarda.
-4. Pulsa **Vincular** en cada terminal. Odoo pide a honei la clave de firma y la huella del certificado del terminal y las guarda en el servidor; nunca llegan al navegador.
+4. Pulsa **Vincular** en cada terminal. Odoo pide a honei la clave de firma del terminal (y que su servidor local use HTTP) y la guarda. Al abrir el POS, la caja recibe la IP y la clave del terminal y firma ella misma cada petición.
    - Si varios TPV usan el mismo Terminal ID, la clave se copia a todos.
-   - ⚠️ Volver a vincular **rota la clave**: la anterior deja de funcionar al instante. Vincula cada terminal desde un único Odoo.
+   - ⚠️ Volver a vincular **rota la clave**: la anterior deja de funcionar al instante (las cajas abiertas deben recargar el POS).
 5. Revisa la columna **Estado local**:
 
 | Estado | Significado |
 |---|---|
-| **Listo** | IP, clave y huella configuradas. |
+| **Listo** | IP y clave configuradas. |
 | **Sin IP** | Falta la IP local. |
 | **Sin vincular** | Falta pulsar **Vincular**. |
-| **Sin huella** | El terminal aún no ha reportado su certificado a honei. Enciende el terminal, espera un minuto y vuelve a vincular. |
 
-### 4.5 Vincular sin Internet en el local
+### 4.5 Permiso de red local en cada caja
 
-Si el servidor Odoo no tiene salida a Internet, obtén la clave desde otro equipo llamando a la API de honei (`POST /terminals/:terminalId/device-bridge-key`, ver [Authorization](https://integration.terminal.honei.app/api-reference/pay-at-counter-and-apk/local-api/authorization)) y pega a mano **Secreto local** y **Huella del certificado** (columnas opcionales de la lista de terminales).
+La caja habla con el terminal por HTTP en la red de la tienda (la vinculación ya configura el terminal así; cada mensaje va firmado con la clave del terminal).
+
+Si el POS se abre desde una dirección pública (Odoo en la nube), la primera vez Chrome pide permiso para **acceder a dispositivos de la red local**: acéptalo. Se concede una vez por caja y sitio. Si se deniega por error, se puede cambiar desde el candado de la barra de direcciones → **Configuración del sitio**.
+
+Solo Chrome y Edge permiten esta conexión desde una página HTTPS.
 
 ### 4.6 Comprobación
 
-1. Pulsa **Probar** en cada terminal. Debe aparecer *"Conexión local con … correcta"*.
-2. Abre una sesión del POS y haz un cobro de prueba.
+1. Abre el POS y el menú **☰ → honei Terminal**: junto a cada terminal aparece un icono de wifi si responde por la red local o de nube si se cobrará por la nube. Se comprueba cada 20 segundos, lo que además mantiene el terminal despierto.
+2. Haz un cobro de prueba.
 
 ---
 
@@ -202,7 +204,7 @@ Las devoluciones funcionan igual: al cobrar una orden de devolución con el mét
 ### Cancelar un pago en curso
 
 - **Cloud:** pulsa **Cancelar pago** en el popup (si el terminal lo permite). Se envía el aborto a la API de honei.
-- **Local:** en **A77** y **A920 Pro** aparece **Cancelar pago** en el popup. En el resto de modelos el popup indica que se cancele desde el terminal.
+- **Local:** en **A77** y **A920 Pro** aparece **Cancelar pago** en el popup. En el resto de modelos el popup indica que se cancele desde el terminal. (Si el cobro ha ido por la nube, se comporta como Cloud.)
 
 ### Salir sin esperar
 
@@ -230,7 +232,7 @@ Se descarga un archivo de texto `honei-logs-<fecha>.txt` con una línea por even
 
 | Funcionalidad | Descripción |
 |---------------|-------------|
-| Integración cloud o local | Se elige por método de pago; por defecto cloud. |
+| Integración cloud o local | Se elige por método de pago; por defecto cloud. En local, si el terminal no responde por la red se cobra por la nube. |
 | Sincronización de terminales | Al pulsar honei, se consulta el servidor y se actualiza la lista de terminales del TPV. |
 | Un terminal por TPV | Sin selector: el cobro arranca directamente. |
 | Siguiente venta automática | Opción en el método de pago; salta ticket y validación manual. |
@@ -272,19 +274,18 @@ Se descarga un archivo de texto `honei-logs-<fecha>.txt` con una línea por even
 
 - Recarga el POS (F5). Si persiste, comprueba que el módulo esté en la versión **19.0.0.2.0** o superior y actualizado en la base de datos.
 
-### Local: "No se puede conectar con el terminal en la red local"
+### Local: siempre cobra por la nube / "Terminal no disponible"
 
 - Comprueba que el terminal está encendido, con la app honei Terminal abierta y la sesión iniciada.
-- Comprueba que la **IP local** es la actual del terminal y que el servidor Odoo llega a ella (misma red, sin aislamiento de clientes Wi-Fi ni firewall en el puerto 8743).
+- Comprueba que la **IP local** es la actual del terminal y que la caja está en la misma red (sin aislamiento de clientes Wi-Fi ni firewall en el puerto 8743).
+- Abre en la caja `http://<IP del terminal>:8743/device-bridge/health`: debe mostrar `{"status":"ok"}`. Si no carga, la caja no llega al terminal por red.
+- Comprueba que Chrome tiene permiso de red local para el sitio de Odoo (apartado 4.5).
+- Si el terminal se vinculó antes de esta versión, pulsa **Vincular** de nuevo para que pase a HTTP.
 - Si el terminal no se ha vinculado nunca, su servidor local no está arrancado: pulsa **Vincular**.
-
-### Local: "El certificado del terminal no coincide con la huella guardada"
-
-- El terminal ha regenerado su certificado (p. ej. tras reinstalar la app o borrar sus datos). Pulsa **Vincular** de nuevo.
 
 ### Local: "El terminal ha rechazado la firma" o "no tiene clave de integración local"
 
-- La clave se ha rotado desde otro sitio o el terminal ha cerrado sesión. Pulsa **Vincular** de nuevo (y, si hace falta, inicia sesión en el terminal).
+- La clave se ha rotado desde otro sitio o el terminal ha cerrado sesión. Pulsa **Vincular** de nuevo, inicia sesión en el terminal si hace falta y recarga el POS en las cajas.
 
 ### Local: error y "Comprueba en el terminal si el cobro se ha completado"
 
@@ -299,8 +300,7 @@ honei_terminal/
 ├── __init__.py
 ├── __manifest__.py
 ├── models/
-│   ├── device_bridge.py          # Cliente de la Local API (HMAC, huella del certificado)
-│   ├── honei_terminal.py         # Terminales + vinculación y operaciones locales
+│   ├── honei_terminal.py         # Terminales + vinculación local
 │   ├── pos_config.py             # Terminales + sync_honei_terminals_pos_data
 │   ├── pos_order.py              # Datos del pago original para devoluciones
 │   ├── pos_payment_method.py     # Credenciales, integración cloud/local, honei_auto_next_order
@@ -318,12 +318,13 @@ honei_terminal/
 │       ├── css/
 │       │   └── honei_terminal.css
 │       ├── js/
+│       │   ├── device_bridge_client.js     # Cliente de la Local API (firma HMAC, ping)
 │       │   ├── honei_logger.js             # Logs descargables
 │       │   ├── honei_validation_popup.js   # Popup: cobro cloud/local, polling, cancelar
 │       │   ├── navbar.js                   # Menú honei Terminal
 │       │   ├── order_payment_validation.js # Siguiente venta sin ticket
-│       │   ├── payment_screen.js           # Pago honei + sync terminales
-│       │   └── pos_store.js                # Reanudar cobro tras recarga
+│       │   ├── payment_screen.js           # Pago honei, elección local/nube, sync terminales
+│       │   └── pos_store.js                # Reanudar cobro tras recarga, ping local cada 20 s
 │       └── xml/
 │           ├── honei_validation_popup.xml
 │           └── navbar.xml

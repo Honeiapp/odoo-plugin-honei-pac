@@ -15,6 +15,10 @@
                             <i class="fa fa-fw me-1"
                                t-att-class="isHoneiTerminalSelected(honeiTerminal) ? 'fa-check text-primary' : ''"/>
                             <t t-esc="honeiTerminal.name"/>
+                            <t t-set="honeiRoute" t-value="honeiTerminalRoute(honeiTerminal)"/>
+                            <i t-if="honeiRoute" class="fa fa-fw ms-2"
+                               t-att-class="honeiRoute === 'local' ? 'fa-wifi text-success' : 'fa-cloud text-muted'"
+                               t-att-title="honeiRoute === 'local' ? 'Red local' : 'Nube'"/>
                         </DropdownItem>
                     </t>
                     <div class="dropdown-divider"/>

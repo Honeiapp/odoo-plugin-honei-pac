@@ -16,6 +16,15 @@ patch(Navbar.prototype, {
         return this.honeiTerminals.length >= 1;
     },
 
+    /** "local" / "cloud" for terminals linked for local integration, else null. */
+    honeiTerminalRoute(terminal) {
+        const reachable = this.pos.honeiLocalReachable?.[terminal.id];
+        if (!terminal.local_host || reachable === undefined) {
+            return null;
+        }
+        return reachable ? "local" : "cloud";
+    },
+
     isHoneiTerminalSelected(terminal) {
         if (this.honeiTerminals.length === 1) {
             return true;
