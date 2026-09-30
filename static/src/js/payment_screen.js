@@ -7,6 +7,7 @@ import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { _t } from "@web/core/l10n/translation";
 import { HoneiValidationPopup, getActiveHoneiValidationPopup } from "./honei_validation_popup";
 import { honeiLogger } from "./honei_logger";
+import * as deviceBridge from "./device_bridge_client";
 
 patch(PaymentScreen.prototype, {
     setup() {
@@ -60,7 +61,12 @@ patch(PaymentScreen.prototype, {
             transactionId: pending.transactionId,
             orderUuid: pending.orderUuid,
         });
+        const terminalRecord = this.pos.models["pos.config.honei_terminal"]?.get(
+            pending.terminal?.id
+        );
         this._openHoneiPopup({
+            localHost: terminalRecord?.local_host || "",
+            localSecret: terminalRecord?.local_secret || "",
             paymentMethod,
             terminal: pending.terminal,
             amount: pending.amount,
@@ -245,6 +251,16 @@ patch(PaymentScreen.prototype, {
             ? "https://staging.api.honei.app/v1"
             : "https://api.honei.app/v1";
 
+        const route = await this._chooseHoneiRoute(paymentMethod, selectedTerminal);
+        if (this._honeiDisposed) {
+            honeiLogger.warn("payment_flow_aborted_disposed", { stage: "choose_route" });
+            return false;
+        }
+        if (!route) {
+            this.pos.releaseHoneiPayment();
+            return false;
+        }
+
         return this._openHoneiPopup({
             paymentMethod,
             terminal: selectedTerminal,
@@ -254,8 +270,58 @@ patch(PaymentScreen.prototype, {
             mode: isRefund ? "refund" : "payment",
             originalPaymentId,
             flowStart,
-            integrationMode: paymentMethod.honei_integration_mode || "cloud",
+            ...route,
         });
+    },
+
+    /**
+     * Local mode goes straight to the terminal over the shop's network when it
+     * answers a ping, and falls back to the cloud API otherwise. The whole
+     * operation then stays on the chosen route: an operation is only ever sent
+     * once, through one route.
+     */
+    async _chooseHoneiRoute(paymentMethod, terminal) {
+        if (paymentMethod.honei_integration_mode !== "local") {
+            return { integrationMode: "cloud" };
+        }
+        const record = this.pos.models["pos.config.honei_terminal"]?.get(terminal.id);
+        const localHost = record?.local_host || "";
+        const localSecret = record?.local_secret || "";
+        // Second, longer try: an idle terminal may need a moment to wake its Wi-Fi.
+        const reachable =
+            !!localSecret &&
+            ((await deviceBridge.ping(localHost)) || (await deviceBridge.ping(localHost, 3000)));
+        this.pos.setHoneiLocalReachable?.(terminal.id, reachable);
+        if (reachable) {
+            honeiLogger.info("route_local", { terminalId: terminal.code, host: localHost });
+            return { integrationMode: "local", localHost, localSecret };
+        }
+        const hasCloud = !!(
+            paymentMethod.venue_api_key?.trim() && paymentMethod.odoo_integration_secret?.trim()
+        );
+        honeiLogger.warn("route_local_unreachable", {
+            terminalId: terminal.code,
+            host: localHost,
+            linked: !!localSecret,
+            fallback: hasCloud ? "cloud" : null,
+        });
+        if (hasCloud) {
+            this.notification.add(
+                _t("El terminal no responde por la red local: se cobra por la nube."),
+                { type: "info" }
+            );
+            return { integrationMode: "cloud" };
+        }
+        this.dialog.add(AlertDialog, {
+            title: _t("Terminal no disponible"),
+            body: localHost
+                ? _t(
+                      "No se puede conectar con el terminal en %s. Comprueba que está encendido, con la app abierta y en la misma red que esta caja, y que el navegador tiene permiso para acceder a la red local.",
+                      localHost
+                  )
+                : _t("El terminal no tiene IP local configurada."),
+        });
+        return null;
     },
 
     _openHoneiPopup({
@@ -269,6 +335,8 @@ patch(PaymentScreen.prototype, {
         flowStart = performance.now(),
         resumeState = null,
         integrationMode = "cloud",
+        localHost = "",
+        localSecret = "",
     }) {
         const isRefund = mode === "refund";
         return new Promise((resolve) => {
@@ -297,6 +365,8 @@ patch(PaymentScreen.prototype, {
                 orderUuid: this.currentOrder?.uuid || "",
                 paymentMethodId: paymentMethod.id,
                 integrationMode: integrationMode,
+                localHost,
+                localSecret,
                 onConfirm: async (selectedHoneiConfig, apiResponse) => {
                     honeiLogger.info("popup_on_confirm", {
                         isRefund,

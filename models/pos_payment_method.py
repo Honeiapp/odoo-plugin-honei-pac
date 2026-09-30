@@ -30,9 +30,9 @@ class PosPaymentMethod(models.Model):
         string="Integración",
         default="cloud",
         required=True,
-        help="Cloud: el cobro pasa por la API de honei (requiere Internet en el TPV). "
-        "Local: Odoo habla directamente con el terminal en la red local, sin pasar por "
-        "honei (requiere IP y vinculación de cada terminal).",
+        help="Cloud: el cobro pasa por la API de honei. "
+        "Local: la caja habla directamente con el terminal por la red de la tienda y, si no "
+        "responde, cobra por la API de honei (requiere IP y vinculación de cada terminal).",
     )
     honei_auto_next_order = fields.Boolean(
         "Ir a la siguiente venta tras el pago",

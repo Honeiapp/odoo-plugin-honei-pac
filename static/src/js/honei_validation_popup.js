@@ -5,11 +5,10 @@ import { Component, onMounted, onWillDestroy, useExternalListener, useState } fr
 import { Dialog } from "@web/core/dialog/dialog";
 import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { useService } from "@web/core/utils/hooks";
-import { ConnectionLostError } from "@web/core/network/rpc";
+import * as deviceBridge from "./device_bridge_client";
 import { honeiLogger } from "./honei_logger";
 
 const POLL_INTERVAL_MS = 1000;
-const TERMINAL_MODEL = "pos.config.honei_terminal";
 // The terminal may have received the request but its response was lost.
 const UNKNOWN_OUTCOME_ERRORS = ["no_response", "invalid_response_signature"];
 // `replayed` means two requests crossed on the counter: retried silently.
@@ -112,6 +111,8 @@ export class HoneiValidationPopup extends Component {
         paymentMethodId: { type: Number, optional: true },
         resumeState: { type: Object, optional: true },
         integrationMode: { type: String, optional: true },
+        localHost: { type: String, optional: true },
+        localSecret: { type: String, optional: true },
     };
 
     static defaultProps = {
@@ -138,7 +139,6 @@ export class HoneiValidationPopup extends Component {
         this._exitTimer = null;
 
         this._t = _t;
-        this.orm = useService("orm");
         this.dialogService = useService("dialog");
         this._pendingLocalRef = null;
         this._polling = false;
@@ -441,14 +441,7 @@ export class HoneiValidationPopup extends Component {
             not_configured: this._t(
                 "El terminal no tiene IP local o no está vinculado. Revisa la configuración del punto de venta."
             ),
-            missing_fingerprint: this._t(
-                "Falta la huella del certificado del terminal. Vuelve a vincularlo."
-            ),
-            unreachable: this._t("No se puede conectar con el terminal en la red local."),
-            no_response: this._t("El terminal no ha respondido."),
-            tls_error: this._t(
-                "El certificado del terminal no coincide con la huella guardada. Vuelve a vincular el terminal en la configuración del punto de venta."
-            ),
+            no_response: this._t("No se ha podido conectar con el terminal en la red local."),
             invalid_response_signature: this._t(
                 "La respuesta del terminal no tiene una firma válida."
             ),
@@ -480,10 +473,32 @@ export class HoneiValidationPopup extends Component {
 
     async _localCall(method, args) {
         const t0 = performance.now();
-        const result = await this.orm.call(TERMINAL_MODEL, method, [
-            [this.props.terminal.id],
-            ...args,
-        ]);
+        const terminal = {
+            terminalKey: this.props.terminal.id,
+            host: this.props.localHost,
+            secret: this.props.localSecret,
+        };
+        const [ref, ...rest] = args;
+        let result;
+        switch (method) {
+            case "init_payment":
+                result = await deviceBridge.request(terminal, "POST", "/init-payment", {
+                    ref,
+                    amount: rest[0],
+                });
+                break;
+            case "init_refund":
+                result = await deviceBridge.request(terminal, "POST", `/payments/${ref}/refund`, {
+                    paymentId: rest[0],
+                    amount: rest[1],
+                });
+                break;
+            case "abort":
+                result = await deviceBridge.request(terminal, "POST", `/payments/${ref}/abort`);
+                break;
+            default:
+                result = await deviceBridge.request(terminal, "GET", `/payments/${ref}/status`);
+        }
         honeiLogger.debug("local_call", {
             method,
             duration_ms: Math.round(performance.now() - t0),
@@ -507,21 +522,18 @@ export class HoneiValidationPopup extends Component {
             terminalId: this.props.terminal.code,
             originalPaymentId: this.props.originalPaymentId || null,
         });
+        amount = Math.round(Math.abs(amount) * 100) / 100;
         let result;
-        try {
+        for (let attempt = 0; attempt <= MAX_REPLAYED_RETRIES; attempt++) {
             result = this.isRefund
-                ? await this._localCall("honei_local_init_refund", [
-                      ref,
-                      this.props.originalPaymentId,
-                      amount,
-                  ])
-                : await this._localCall("honei_local_init_payment", [ref, amount]);
-        } catch (e) {
-            honeiLogger.warn("local_init_rpc_error", { ref, message: e?.message || String(e) });
-            if (e instanceof ConnectionLostError) {
-                throw this._unknownOutcomeError(this._t("No hay conexión con Odoo."));
+                ? await this._localCall("init_refund", [ref, this.props.originalPaymentId, amount])
+                : await this._localCall("init_payment", [ref, amount]);
+            // Another till signed for this terminal in between: nothing was
+            // started, resend with a fresh counter.
+            if (!(result?.http_status === 409 && result?.data?.reason === "replayed")) {
+                break;
             }
-            throw e;
+            honeiLogger.warn("local_init_replayed_retrying", { ref, attempt });
         }
         const status = result?.http_status;
         if (status === 202 || status === 200) {
@@ -563,20 +575,7 @@ export class HoneiValidationPopup extends Component {
 
         while (this._polling) {
             iteration += 1;
-            let result;
-            try {
-                result = await this._localCall("honei_local_status", [ref]);
-            } catch (e) {
-                honeiLogger.warn("local_poll_rpc_error", {
-                    iteration,
-                    message: e?.message || String(e),
-                });
-                throw this._unknownOutcomeError(
-                    e instanceof ConnectionLostError
-                        ? this._t("No hay conexión con Odoo.")
-                        : e?.data?.message || e?.message || String(e)
-                );
-            }
+            const result = await this._localCall("status", [ref]);
 
             if (
                 result?.http_status === 409 &&
@@ -593,9 +592,7 @@ export class HoneiValidationPopup extends Component {
                 // The operation was already started: keep the ref pending so
                 // "Reintentar" polls it again.
                 honeiLogger.warn("local_poll_terminal_error", { iteration, result });
-                throw result?.error === "tls_error"
-                    ? new Error(this._localErrorMessage(result))
-                    : this._unknownOutcomeError(this._localErrorMessage(result));
+                throw this._unknownOutcomeError(this._localErrorMessage(result));
             }
 
             if (result?.http_status === 404 && !reinitTried) {
@@ -1022,7 +1019,7 @@ export class HoneiValidationPopup extends Component {
         honeiLogger.info("user_cancel_requested", { mode: this.props.mode, integration: "local", ref });
         let result;
         try {
-            result = await this._localCall("honei_local_abort", [ref]);
+            result = await this._localCall("abort", [ref]);
         } catch (e) {
             result = { error: e?.message || String(e) };
         }
