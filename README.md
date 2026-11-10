@@ -201,6 +201,17 @@ Los cambios en terminales (añadir, editar o borrar) se **sincronizan al instant
 
 Las devoluciones funcionan igual: al cobrar una orden de devolución con el método honei se devuelve el importe sobre el pago honei original.
 
+### Imprimir los tickets en el terminal
+
+Los terminales **Castles S1F2** y **PAX A920 Pro** tienen impresora. Para imprimir en ella los tickets del TPV:
+
+1. En la pestaña **honei Terminal** del TPV, activa **Impresora integrada** en el terminal.
+2. Si quieres que el ticket salga solo al validar, activa en el TPV **Impresión automática del recibo** (ajuste estándar de Odoo). Si no, se imprime con el botón **Imprimir** de la pantalla del ticket.
+
+Imprime el terminal **por defecto** de la caja (o el único). En el menú **☰ → honei Terminal** aparece un icono de impresora junto a los terminales que la tienen activada. Si el terminal por defecto no la tiene activada, se usa la impresora que tenga configurada Odoo.
+
+Se imprime el mismo ticket de Odoo, con todo lo que añade la localización (número de factura simplificada, desglose de impuestos, QR VERI\*FACTU…), ajustado al papel de 58 mm del terminal. Se envía por la API de honei (también en integración **Local**), así que la caja y el terminal necesitan Internet.
+
 ### Cancelar un pago en curso
 
 - **Cloud:** pulsa **Cancelar pago** en el popup (si el terminal lo permite). Se envía el aborto a la API de honei.
@@ -239,6 +250,7 @@ Se descarga un archivo de texto `honei-logs-<fecha>.txt` con una línea por even
 | Cancelar desde el popup | Cloud: si el terminal lo permite. Local: A77 y A920 Pro. |
 | Salir sin esperar | Tras 2 minutos esperando, con confirmación. |
 | Reanudar tras recarga | Se vuelve a consultar el mismo cobro; nunca se cobra dos veces. |
+| Impresora integrada | Los tickets del TPV se imprimen en el terminal por defecto si tiene la opción activada (por la nube). |
 | Validación automática | Tras un pago honei correcto, se añade la línea de pago y se valida la orden sin pasos extra. |
 
 ---
@@ -291,6 +303,12 @@ Se descarga un archivo de texto `honei-logs-<fecha>.txt` con una línea por even
 
 - Se perdió la comunicación con el cobro ya iniciado. Mira en el terminal si se ha cobrado y pulsa **Reintentar**: vuelve a consultar ese mismo cobro, no lanza otro.
 
+### Impresora integrada: "El terminal no ha podido imprimir"
+
+- Comprueba que el terminal es un S1F2 o A920 Pro, está encendido, con la app honei Terminal abierta y conectado a Internet.
+- La impresión va siempre por la API de honei: la caja también necesita Internet.
+- Pulsa **Reintentar** en el aviso, o **Descargar** para obtener el ticket en el navegador.
+
 ---
 
 ## 9. Estructura del módulo (referencia)
@@ -320,11 +338,12 @@ honei_terminal/
 │       ├── js/
 │       │   ├── device_bridge_client.js     # Cliente de la Local API (firma HMAC, ping)
 │       │   ├── honei_logger.js             # Logs descargables
+│       │   ├── honei_printer.js            # Impresora integrada del terminal (print-ticket)
 │       │   ├── honei_validation_popup.js   # Popup: cobro cloud/local, polling, cancelar
 │       │   ├── navbar.js                   # Menú honei Terminal
 │       │   ├── order_payment_validation.js # Siguiente venta sin ticket
 │       │   ├── payment_screen.js           # Pago honei, elección local/nube, sync terminales
-│       │   └── pos_store.js                # Reanudar cobro tras recarga, ping local cada 20 s
+│       │   └── pos_store.js                # Reanudar cobro tras recarga, ping local cada 20 s, impresora
 │       └── xml/
 │           ├── honei_validation_popup.xml
 │           └── navbar.xml

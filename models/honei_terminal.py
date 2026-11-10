@@ -19,6 +19,13 @@ class HoneiTerminal(models.Model):
     name = fields.Char("Name", required=True)
     terminal_id = fields.Char("Terminal ID", required=True)
     pos_config_id = fields.Many2one("pos.config", "POS Config", required=True)
+    use_integrated_printer = fields.Boolean(
+        "Impresora integrada",
+        default=False,
+        help="Imprime los tickets del TPV en la impresora del propio terminal (Castles S1F2 y "
+        "PAX A920 Pro), a través de la API de honei. Se usa cuando este terminal es el "
+        "terminal por defecto de la caja.",
+    )
 
     # Local integration: the POS talks to the terminal directly over the shop's
     # network and signs requests itself, so it loads the host and secret.
@@ -48,7 +55,15 @@ class HoneiTerminal(models.Model):
 
     @api.model
     def _load_pos_data_fields(self, config):
-        return ["id", "name", "terminal_id", "pos_config_id", "local_host", "local_secret"]
+        return [
+            "id",
+            "name",
+            "terminal_id",
+            "pos_config_id",
+            "use_integrated_printer",
+            "local_host",
+            "local_secret",
+        ]
 
     @api.model
     def _load_pos_data_domain(self, data, config):
