@@ -116,16 +116,14 @@ export class HoneiPrinter extends BasePrinter {
         };
     }
 
-    getResultsError(printResult) {
+    getResultsError() {
+        // The API's reason is in the honei logs (print_ticket_http_error).
         return {
             successful: false,
             canRetry: true,
             message: {
                 title: _t("El terminal %s no ha podido imprimir", this.terminalName),
-                body: _t(
-                    "Comprueba que el terminal está encendido, con la app honei Terminal abierta y conectado a Internet. (%s)",
-                    printResult?.message || _t("sin respuesta")
-                ),
+                body: _t("Comprueba que el terminal tiene conexión a Internet y papel."),
             },
         };
     }

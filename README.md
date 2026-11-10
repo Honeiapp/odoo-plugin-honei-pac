@@ -305,7 +305,7 @@ Se descarga un archivo de texto `honei-logs-<fecha>.txt` con una línea por even
 
 ### Impresora integrada: "El terminal no ha podido imprimir"
 
-- Comprueba que el terminal es un S1F2 o A920 Pro, está encendido, con la app honei Terminal abierta y conectado a Internet.
+- Comprueba que el terminal tiene conexión a Internet y papel, y que es un S1F2 o A920 Pro.
 - La impresión va siempre por la API de honei: la caja también necesita Internet.
 - Pulsa **Reintentar** en el aviso, o **Descargar** para obtener el ticket en el navegador.
 
