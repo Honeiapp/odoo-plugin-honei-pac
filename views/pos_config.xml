@@ -19,6 +19,7 @@
                 <list editable="bottom">
                   <field name="name"/>
                   <field name="terminal_id"/>
+                  <field name="use_integrated_printer" widget="boolean_toggle"/>
                   <field name="local_host" column_invisible="not parent.honei_has_local_mode"/>
                   <field name="local_secret" password="True" optional="hide"
                          column_invisible="not parent.honei_has_local_mode"/>

@@ -8,3 +8,11 @@
 .honei-no-close {
     overflow: hidden !important;
 }
+
+/* Receipt rendered for the terminal's built-in 58 mm printer: the backend lays
+   the image out 376 px wide (384 dots minus its side padding). Odoo renders its
+   80 mm receipts at 512 px / 22 px, so the font keeps the same proportion. */
+.pos-receipt-print.honei-receipt-58mm {
+    width: 376px;
+    font-size: 16px;
+}

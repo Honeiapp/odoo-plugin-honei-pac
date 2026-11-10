@@ -9,6 +9,7 @@ import {
 } from "./honei_validation_popup";
 import { honeiLogger } from "./honei_logger";
 import * as deviceBridge from "./device_bridge_client";
+import { HoneiPrinter } from "./honei_printer";
 
 const LOCAL_PING_INTERVAL_MS = 20000;
 
@@ -46,8 +47,66 @@ patch(PosStore.prototype, {
         this.pendingHoneiResume = null;
         // terminal id -> whether it answered the last ping over the local network.
         this.honeiLocalReachable = {};
+        // Receipt printer configured by Odoo (Epson, IoT...), restored when the
+        // default terminal doesn't print.
+        this._honeiFallbackPrinter = this.hardwareProxy.printer;
+        this.applyHoneiPrinter();
         this._maybeQueueHoneiResume();
         this._startHoneiLocalPing();
+    },
+
+    /** The terminal this register prints on: its default (or only) terminal. */
+    getHoneiPrintTerminal() {
+        const terminals = this.getHoneiTerminalsForCurrentConfig();
+        const terminal =
+            terminals.length === 1
+                ? terminals[0]
+                : terminals.find((t) => t.id === this.honeiDefaultTerminalId);
+        return terminal?.use_integrated_printer ? terminal : null;
+    },
+
+    /**
+     * Routes receipts to the default terminal's built-in printer when it has
+     * one enabled, and back to Odoo's own printer otherwise.
+     */
+    applyHoneiPrinter() {
+        const terminal = this.getHoneiPrintTerminal();
+        const method = this.models["pos.payment.method"]
+            ?.getAll()
+            .find(
+                (m) =>
+                    m.is_honei_payment &&
+                    m.venue_api_key?.trim() &&
+                    m.odoo_integration_secret?.trim()
+            );
+        const current = this.hardwareProxy.printer;
+
+        if (!terminal || !method) {
+            if (terminal && !method) {
+                honeiLogger.warn("integrated_printer_no_credentials", {
+                    terminalId: terminal.terminal_id,
+                });
+            }
+            if (current instanceof HoneiPrinter) {
+                this.hardwareProxy.printer = this._honeiFallbackPrinter;
+                honeiLogger.info("integrated_printer_disabled");
+            }
+            return;
+        }
+
+        if (current instanceof HoneiPrinter && current.terminalId === terminal.terminal_id) {
+            return;
+        }
+        this.hardwareProxy.printer = new HoneiPrinter({
+            terminalId: terminal.terminal_id,
+            terminalName: terminal.name,
+            apiBaseUrl: method.is_staging
+                ? "https://staging.api.honei.app/v1"
+                : "https://api.honei.app/v1",
+            venueApiKey: method.venue_api_key.trim(),
+            integrationSecret: method.odoo_integration_secret.trim(),
+        });
+        honeiLogger.info("integrated_printer_enabled", { terminalId: terminal.terminal_id });
     },
 
     /** Keeps the local terminals awake and their reachability up to date. */
@@ -121,6 +180,7 @@ patch(PosStore.prototype, {
     setHoneiDefaultTerminalId(terminalId) {
         this.honeiDefaultTerminalId = terminalId;
         writeStoredHoneiTerminalId(this.config.id, terminalId);
+        this.applyHoneiPrinter();
     },
 
     getHoneiTerminalsForCurrentConfig() {
@@ -167,6 +227,8 @@ patch(PosStore.prototype, {
         ) {
             this.setHoneiDefaultTerminalId(null);
         }
+        // The print flag may have changed in the backend.
+        this.applyHoneiPrinter();
 
         return terminals;
     },
